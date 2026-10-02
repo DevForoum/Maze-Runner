@@ -33,7 +33,7 @@ public class GameController extends KeyAdapter {
 
         // 1-second interval level clock timer
         this.levelClockTimer = new Timer(1000, e -> {
-            if (!model.isGoalReached() && !model.isTimeExpired()) {
+            if (!model.isGoalReached()) {
                 model.tickTimer();
                 panel.repaint();
             }
@@ -50,14 +50,6 @@ public class GameController extends KeyAdapter {
             if (keyCode == KeyEvent.VK_SPACE || keyCode == KeyEvent.VK_ENTER) {
                 advanceToNextLevel();
             } else if (keyCode == KeyEvent.VK_R) {
-                restartLevel();
-            }
-            return;
-        }
-
-        // Time Expired state
-        if (model.isTimeExpired()) {
-            if (keyCode == KeyEvent.VK_R) {
                 restartLevel();
             }
             return;
@@ -174,11 +166,7 @@ public class GameController extends KeyAdapter {
                     panel.triggerScreenShake(18.0);
                     Point impact = result.getImpactCell();
                     if (impact != null) {
-                        int maxDim = Math.max(model.getRows(), model.getCols());
-                        int cellSize = Math.max((panel.getWidth() - 60) / maxDim, 16);
-                        int ox = (panel.getWidth() - model.getCols() * cellSize) / 2;
-                        int oy = 70 + (panel.getHeight() - 70 - 45 - model.getRows() * cellSize) / 2;
-                        panel.spawnDebris(impact.y, impact.x, result.getImpactWallDirection(), cellSize, ox, oy);
+                        panel.spawnDebrisAt(impact.y, impact.x, result.getImpactWallDirection());
                     }
                 } else if (result.hadHighMomentum()) {
                     // Solid wall slam with high momentum

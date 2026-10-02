@@ -91,9 +91,40 @@ public class Cell {
     public boolean isPath() { return path; }
     public void setPath(boolean path) { this.path = path; }
 
+    // Energy Gems
+    private boolean hasGem = false;
+
+    public boolean hasGem() { return hasGem; }
+    public void setGem(boolean hasGem) { this.hasGem = hasGem; }
+
+    // Wormholes / Portals
+    private boolean portal = false;
+    private int portalId = 0; // 1 = Cyan Portal, 2 = Violet Portal
+    private java.awt.Point portalTarget = null;
+
+    public boolean isPortal() { return portal; }
+    public int getPortalId() { return portalId; }
+    public java.awt.Point getPortalTarget() { return portalTarget; }
+
+    public void setPortal(int portalId, java.awt.Point target) {
+        this.portal = true;
+        this.portalId = portalId;
+        this.portalTarget = target;
+    }
+
+    public void clearPortal() {
+        this.portal = false;
+        this.portalId = 0;
+        this.portalTarget = null;
+    }
+
     public void reset() {
         this.visited = false;
         this.path = false;
+        this.hasGem = false;
+        this.portal = false;
+        this.portalId = 0;
+        this.portalTarget = null;
         for (int i = 0; i < 4; i++) {
             this.walls[i] = true;
             this.cracked[i] = false;

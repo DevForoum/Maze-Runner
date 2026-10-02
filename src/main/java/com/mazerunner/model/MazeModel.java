@@ -29,9 +29,10 @@ public class MazeModel {
     private final Random random = new Random();
 
     // Timer management
-    private int timeRemainingSeconds = 0;
     private int elapsedTimeSeconds = 0;
-    private boolean timeExpired = false;
+
+    // Performance & Scorecard stats
+    private LevelStats currentStats = new LevelStats();
 
     public MazeModel(LevelConfig levelConfig) {
         initLevel(levelConfig);
@@ -44,9 +45,7 @@ public class MazeModel {
         this.grid = new Cell[rows][cols];
         this.rotationAngle = 0;
         this.showingPath = false;
-        this.timeRemainingSeconds = levelConfig.getTimeLimitSeconds();
         this.elapsedTimeSeconds = 0;
-        this.timeExpired = false;
 
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
@@ -57,25 +56,9 @@ public class MazeModel {
     }
 
     public void tickTimer() {
-        if (timeExpired || isGoalReached()) return;
-
-        if (levelConfig != null && levelConfig.getTimeLimitSeconds() > 0) {
-            timeRemainingSeconds--;
-            if (timeRemainingSeconds <= 0) {
-                timeRemainingSeconds = 0;
-                timeExpired = true;
-            }
-        } else {
+        if (!isGoalReached()) {
             elapsedTimeSeconds++;
         }
-    }
-
-    public boolean isTimeExpired() {
-        return timeExpired;
-    }
-
-    public int getTimeRemainingSeconds() {
-        return timeRemainingSeconds;
     }
 
     public int getElapsedTimeSeconds() {
@@ -83,11 +66,8 @@ public class MazeModel {
     }
 
     public String getTimeDisplay() {
-        int seconds = (levelConfig != null && levelConfig.getTimeLimitSeconds() > 0)
-                ? timeRemainingSeconds
-                : elapsedTimeSeconds;
-        int m = seconds / 60;
-        int s = seconds % 60;
+        int m = elapsedTimeSeconds / 60;
+        int s = elapsedTimeSeconds % 60;
         return String.format("%02d:%02d", m, s);
     }
 
@@ -134,11 +114,80 @@ public class MazeModel {
             injectCrackedWalls(levelConfig.getCrackedWallsCount());
         }
 
+        // Inject energy gems
+        if (levelConfig != null && levelConfig.getGemsCount() > 0) {
+            injectGems(levelConfig.getGemsCount());
+        }
+
+        // Inject linked portal pair
+        if (levelConfig != null && levelConfig.isPortalsEnabled()) {
+            injectPortals();
+        }
+
+        this.currentStats = new LevelStats();
+
         playerRow = 0;
         playerCol = 0;
 
         if (showingPath) {
             solveBFS();
+        }
+    }
+
+    private void injectGems(int targetCount) {
+        List<Point> candidates = new ArrayList<>();
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                if (r == 0 && c == 0) continue;
+                if (r == rows - 1 && c == cols - 1) continue;
+
+                int wallCount = 0;
+                for (Direction d : Direction.values()) {
+                    if (grid[r][c].hasWall(d)) wallCount++;
+                }
+                if (wallCount >= 2) {
+                    candidates.add(new Point(c, r));
+                }
+            }
+        }
+        Collections.shuffle(candidates, random);
+        int placed = 0;
+        for (Point p : candidates) {
+            if (placed >= targetCount) break;
+            grid[p.y][p.x].setGem(true);
+            placed++;
+        }
+    }
+
+    private void injectPortals() {
+        List<Point> openCells = new ArrayList<>();
+        for (int r = 1; r < rows - 1; r++) {
+            for (int c = 1; c < cols - 1; c++) {
+                if (r == 0 && c == 0) continue;
+                if (r == rows - 1 && c == cols - 1) continue;
+                if (grid[r][c].hasGem()) continue;
+                openCells.add(new Point(c, r));
+            }
+        }
+        Collections.shuffle(openCells, random);
+        Point portalA = null;
+        Point portalB = null;
+        for (int i = 0; i < openCells.size(); i++) {
+            Point p1 = openCells.get(i);
+            for (int j = i + 1; j < openCells.size(); j++) {
+                Point p2 = openCells.get(j);
+                if (p1.distance(p2) >= 4.0) {
+                    portalA = p1;
+                    portalB = p2;
+                    break;
+                }
+            }
+            if (portalA != null) break;
+        }
+
+        if (portalA != null && portalB != null) {
+            grid[portalA.y][portalA.x].setPortal(1, portalB);
+            grid[portalB.y][portalB.x].setPortal(2, portalA);
         }
     }
 
@@ -342,23 +391,23 @@ public class MazeModel {
      * Rotates maze by 90° clockwise.
      */
     public void rotateClockwise() {
+        currentStats.recordRotation();
         rotationAngle = (rotationAngle + 90) % 360;
     }
 
-    /**
-     * Rotates maze by 90° counter-clockwise.
-     */
     public void rotateCounterClockwise() {
+        currentStats.recordRotation();
         rotationAngle = (rotationAngle + 270) % 360;
     }
 
     /**
      * Simulates gravity slide along the current gravity direction.
-     * Evaluates traversal distance, momentum, and checks for cracked wall destruction.
+     * Evaluates traversal distance, momentum, gem collections, and portal transits.
      */
     public SlideResult simulateSlide() {
         Direction dir = getGravityDirection();
         SlideResult result = new SlideResult(dir);
+        java.util.Set<Point> usedPortals = new java.util.HashSet<>();
 
         int r = playerRow;
         int c = playerCol;
@@ -382,6 +431,11 @@ public class MazeModel {
                     r = nr;
                     c = nc;
                     result.addStep(r, c);
+
+                    if (grid[r][c].hasGem()) {
+                        grid[r][c].setGem(false);
+                        currentStats.recordGemCollected();
+                    }
                 } else {
                     // Impact solid or non-breakable wall
                     result.setImpact(r, c, dir, false);
@@ -399,6 +453,32 @@ public class MazeModel {
             r = nr;
             c = nc;
             result.addStep(r, c);
+
+            // Collect gem during slide
+            if (grid[r][c].hasGem()) {
+                grid[r][c].setGem(false);
+                currentStats.recordGemCollected();
+            }
+
+            // Portal transit: preserve momentum and exit at linked portal
+            if (grid[r][c].isPortal()) {
+                Point portalPoint = new Point(c, r);
+                if (!usedPortals.contains(portalPoint)) {
+                    usedPortals.add(portalPoint);
+                    Point target = grid[r][c].getPortalTarget();
+                    if (target != null && isValidCoord(target.y, target.x)) {
+                        usedPortals.add(target);
+                        r = target.y;
+                        c = target.x;
+                        result.addStep(r, c);
+
+                        if (grid[r][c].hasGem()) {
+                            grid[r][c].setGem(false);
+                            currentStats.recordGemCollected();
+                        }
+                    }
+                }
+            }
         }
 
         return result;
@@ -409,6 +489,7 @@ public class MazeModel {
      */
     public void breakWall(int r, int c, Direction dir) {
         if (!isValidCoord(r, c)) return;
+        currentStats.recordWallSmashed();
         grid[r][c].breakWall(dir);
 
         int nr = r + dir.getDr();
@@ -438,8 +519,28 @@ public class MazeModel {
             return false;
         }
 
+        currentStats.recordMove();
         playerRow = targetRow;
         playerCol = targetCol;
+
+        // Collect gem
+        if (grid[playerRow][playerCol].hasGem()) {
+            grid[playerRow][playerCol].setGem(false);
+            currentStats.recordGemCollected();
+        }
+
+        // Teleport if portal
+        if (grid[playerRow][playerCol].isPortal()) {
+            Point target = grid[playerRow][playerCol].getPortalTarget();
+            if (target != null && isValidCoord(target.y, target.x)) {
+                playerRow = target.y;
+                playerCol = target.x;
+                if (grid[playerRow][playerCol].hasGem()) {
+                    grid[playerRow][playerCol].setGem(false);
+                    currentStats.recordGemCollected();
+                }
+            }
+        }
 
         if (showingPath) {
             solveBFS();
@@ -451,6 +552,10 @@ public class MazeModel {
         if (isValidCoord(row, col)) {
             this.playerRow = row;
             this.playerCol = col;
+            if (grid[playerRow][playerCol].hasGem()) {
+                grid[playerRow][playerCol].setGem(false);
+                currentStats.recordGemCollected();
+            }
             if (showingPath) {
                 solveBFS();
             }
@@ -458,7 +563,18 @@ public class MazeModel {
     }
 
     public boolean isGoalReached() {
-        return playerRow == rows - 1 && playerCol == cols - 1;
+        boolean reached = playerRow == rows - 1 && playerCol == cols - 1;
+        if (reached) {
+            int scoreTargetTimeRemaining = Math.max(0, levelConfig.getTimeLimitSeconds() - elapsedTimeSeconds);
+            currentStats.finalizeStats(elapsedTimeSeconds, scoreTargetTimeRemaining,
+                    (levelConfig != null) ? levelConfig.getTimeLimitSeconds() : 0,
+                    (levelConfig != null) ? levelConfig.getGemsCount() : 3);
+        }
+        return reached;
+    }
+
+    public LevelStats getCurrentStats() {
+        return currentStats;
     }
 
     public boolean isValidCoord(int r, int c) {

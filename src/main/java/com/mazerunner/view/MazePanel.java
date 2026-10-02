@@ -89,7 +89,21 @@ public class MazePanel extends JPanel {
         repaint();
     }
 
-    public void spawnDebris(int cellRow, int cellCol, Direction wallDir, int cellSize, int originX, int originY) {
+    /**
+     * MVC-clean debris spawner: computes all pixel geometry internally from cell coords.
+     * Controller passes only grid row/col — no geometry leaks across the boundary.
+     */
+    public void spawnDebrisAt(int cellRow, int cellCol, Direction wallDir) {
+        int mazeAreaWidth = getWidth();
+        int mazeAreaHeight = getHeight() - TOP_HUD_HEIGHT - BOTTOM_HUD_HEIGHT;
+        int maxGridDimension = Math.max(model.getRows(), model.getCols());
+        int cellSize = Math.min((mazeAreaWidth - 60) / maxGridDimension, (mazeAreaHeight - 60) / maxGridDimension);
+        cellSize = Math.max(cellSize, 16);
+        int gridPixelWidth = model.getCols() * cellSize;
+        int gridPixelHeight = model.getRows() * cellSize;
+        int originX = (mazeAreaWidth - gridPixelWidth) / 2;
+        int originY = TOP_HUD_HEIGHT + (mazeAreaHeight - gridPixelHeight) / 2;
+
         int cx = originX + cellCol * cellSize + cellSize / 2;
         int cy = originY + cellRow * cellSize + cellSize / 2;
 
@@ -192,8 +206,9 @@ public class MazePanel extends JPanel {
             }
         }
 
-        // Render Goal and Player
+        // Render Goal, Portals, Gems, Trail and Player
         drawGoal(g2d, originX, originY, cellSize);
+        drawGemsAndPortals(g2d, originX, originY, cellSize);
         drawMomentumTrail(g2d, originX, originY, cellSize);
         drawPlayer(g2d, originX, originY, cellSize);
 
@@ -212,8 +227,6 @@ public class MazePanel extends JPanel {
         // Render Win / Game Over Overlay
         if (model.isGoalReached()) {
             drawWinOverlay(g2d);
-        } else if (model.isTimeExpired()) {
-            drawGameOverOverlay(g2d);
         }
     }
 
@@ -309,6 +322,75 @@ public class MazePanel extends JPanel {
         g2d.fillOval(gx + gSize / 2 - 3, gy + gSize / 2 - 3, 6, 6);
     }
 
+    private void drawGemsAndPortals(Graphics2D g2d, int originX, int originY, int cellSize) {
+        long tick = System.currentTimeMillis();
+        Cell[][] grid = model.getGrid();
+
+        for (int r = 0; r < model.getRows(); r++) {
+            for (int c = 0; c < model.getCols(); c++) {
+                Cell cell = grid[r][c];
+                int x = originX + c * cellSize;
+                int y = originY + r * cellSize;
+                int cx = x + cellSize / 2;
+                int cy = y + cellSize / 2;
+                int halfSize = Math.max(3, cellSize / 3);
+
+                if (cell.hasGem()) {
+                    // Pulsating cyan-gold gem
+                    double pulse = 0.75 + 0.25 * Math.sin((tick / 350.0) + r + c);
+                    int gsize = (int) (halfSize * pulse);
+                    // Outer glow ring
+                    g2d.setColor(new Color(0, 220, 220, 70));
+                    g2d.fillOval(cx - gsize - 3, cy - gsize - 3, (gsize + 3) * 2, (gsize + 3) * 2);
+                    // Gold diamond shape (rotated square)
+                    int[] xpts = {cx, cx + gsize, cx, cx - gsize};
+                    int[] ypts = {cy - gsize, cy, cy + gsize, cy};
+                    g2d.setColor(new Color(0, 240, 255));
+                    g2d.fillPolygon(xpts, ypts, 4);
+                    // Inner bright core
+                    g2d.setColor(new Color(255, 255, 200, 200));
+                    g2d.fillOval(cx - gsize / 3, cy - gsize / 3, gsize * 2 / 3, gsize * 2 / 3);
+                }
+
+                if (cell.isPortal()) {
+                    // Swirling ring portal — id 1 = Cyan, id 2 = Violet
+                    Color portalColor = (cell.getPortalId() == 1)
+                            ? new Color(0, 200, 255)
+                            : new Color(160, 0, 255);
+                    Color portalGlow = (cell.getPortalId() == 1)
+                            ? new Color(0, 200, 255, 50)
+                            : new Color(160, 0, 255, 50);
+
+                    double spin = (tick / 400.0) * (cell.getPortalId() == 1 ? 1 : -1);
+                    int pr = Math.max(4, cellSize / 2 - 2);
+
+                    // Pulsating glow disc
+                    double pulseP = 0.85 + 0.15 * Math.sin(tick / 280.0);
+                    int glowR = (int) (pr * pulseP) + 4;
+                    g2d.setColor(portalGlow);
+                    g2d.fillOval(cx - glowR, cy - glowR, glowR * 2, glowR * 2);
+
+                    // Outer ring
+                    g2d.setColor(portalColor);
+                    g2d.setStroke(new BasicStroke(2.8f));
+                    g2d.drawOval(cx - pr, cy - pr, pr * 2, pr * 2);
+
+                    // Spinning inner arc
+                    g2d.setStroke(new BasicStroke(2.2f));
+                    g2d.drawArc(cx - pr + 3, cy - pr + 3, (pr - 3) * 2, (pr - 3) * 2,
+                            (int) Math.toDegrees(spin), 120);
+
+                    // Center letter: P1 / P2
+                    g2d.setColor(Color.WHITE);
+                    g2d.setFont(new Font("SansSerif", Font.BOLD, Math.max(7, cellSize / 4)));
+                    String label = "P" + cell.getPortalId();
+                    FontMetrics fm = g2d.getFontMetrics();
+                    g2d.drawString(label, cx - fm.stringWidth(label) / 2, cy + fm.getAscent() / 2 - 1);
+                }
+            }
+        }
+    }
+
     private void drawHUD(Graphics2D g2d) {
         LevelConfig config = model.getLevelConfig();
 
@@ -326,11 +408,8 @@ public class MazePanel extends JPanel {
         g2d.drawString(titleStr, 20, 27);
 
         // Live Timer Badge
-        String timeStr = (config != null && config.getTimeLimitSeconds() > 0)
-                ? "TIME: " + model.getTimeDisplay()
-                : "ELAPSED: " + model.getTimeDisplay();
-        boolean isLowTime = config != null && config.getTimeLimitSeconds() > 0 && model.getTimeRemainingSeconds() <= 15;
-        Color timeBg = isLowTime ? new Color(220, 38, 38) : new Color(31, 41, 55);
+        String timeStr = "ELAPSED: " + model.getTimeDisplay();
+        Color timeBg = new Color(31, 41, 55);
         int timeX = (config != null && config.isGravityEnabled()) ? getWidth() - 365 : getWidth() - 140;
         drawBadge(g2d, timeStr, timeBg, timeX, 22);
 
@@ -343,8 +422,18 @@ public class MazePanel extends JPanel {
             }
             if (config.isCrackedWallsEnabled()) {
                 int remaining = model.getRemainingCrackedWallsCount();
-                badgeX = drawBadge(g2d, "CRACKED WALLS: " + remaining + " REMAINING", new Color(217, 119, 6), badgeX, badgeY);
+                badgeX = drawBadge(g2d, "WALLS: " + remaining, new Color(217, 119, 6), badgeX, badgeY);
             }
+            if (config.isPortalsEnabled()) {
+                badgeX = drawBadge(g2d, "PORTALS ACTIVE", new Color(120, 0, 220), badgeX, badgeY);
+            }
+            // Live Gem Counter with stars
+            int gemsCollected = model.getCurrentStats().getGemsCollected();
+            int gemsTotal = config.getGemsCount();
+            String gemStars = "\u2605".repeat(gemsCollected) + "\u2606".repeat(gemsTotal - gemsCollected);
+            Color gemColor = gemsCollected == gemsTotal ? new Color(16, 185, 129) : new Color(180, 140, 0);
+            badgeX = drawBadge(g2d, "GEMS " + gemStars, gemColor, badgeX, badgeY);
+
             if (model.isShowingPath()) {
                 badgeX = drawBadge(g2d, "RADAR PATH ACTIVE", new Color(16, 185, 129), badgeX, badgeY);
             }
@@ -422,81 +511,113 @@ public class MazePanel extends JPanel {
     }
 
     private void drawWinOverlay(Graphics2D g2d) {
-        // Dark translucent overlay
-        g2d.setColor(new Color(0, 0, 0, 185));
+        com.mazerunner.model.LevelStats stats = model.getCurrentStats();
+        String grade = stats.calculateGrade();
+        int stars = stats.getStarsEarned();
+        int totalGems = (model.getLevelConfig() != null) ? model.getLevelConfig().getGemsCount() : 3;
+        int score = stats.calculateTotalScore();
+
+        // Dark overlay
+        g2d.setColor(new Color(0, 0, 0, 195));
         g2d.fillRect(0, 0, getWidth(), getHeight());
 
-        // Modal Box
-        int boxW = 440;
-        int boxH = 220;
+        // Wide scorecard modal
+        int boxW = 500;
+        int boxH = 320;
         int boxX = (getWidth() - boxW) / 2;
         int boxY = (getHeight() - boxH) / 2;
 
-        g2d.setColor(new Color(26, 32, 44));
-        g2d.fillRoundRect(boxX, boxY, boxW, boxH, 16, 16);
-        g2d.setColor(new Color(72, 187, 120));
-        g2d.setStroke(new BasicStroke(3.0f));
-        g2d.drawRoundRect(boxX, boxY, boxW, boxH, 16, 16);
+        // Grade-based border color
+        Color gradeColor = switch (grade) {
+            case "S" -> new Color(255, 215, 0);   // Gold
+            case "A" -> new Color(72, 187, 120);   // Green
+            case "B" -> new Color(59, 130, 246);   // Blue
+            default  -> new Color(160, 174, 192);  // Grey
+        };
 
-        // Win Title
-        g2d.setColor(new Color(72, 187, 120));
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 26));
-        String winTitle = "STAGE COMPLETE!";
+        g2d.setColor(new Color(18, 24, 36));
+        g2d.fillRoundRect(boxX, boxY, boxW, boxH, 18, 18);
+        g2d.setColor(gradeColor);
+        g2d.setStroke(new BasicStroke(3.5f));
+        g2d.drawRoundRect(boxX, boxY, boxW, boxH, 18, 18);
+
+        // ── STAGE COMPLETE banner ──
+        g2d.setColor(gradeColor);
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 22));
+        String banner = "STAGE COMPLETE!";
         FontMetrics fm = g2d.getFontMetrics();
-        g2d.drawString(winTitle, boxX + (boxW - fm.stringWidth(winTitle)) / 2, boxY + 60);
+        g2d.drawString(banner, boxX + (boxW - fm.stringWidth(banner)) / 2, boxY + 38);
 
-        // Subtitle
-        g2d.setColor(Color.WHITE);
-        g2d.setFont(new Font("SansSerif", Font.PLAIN, 15));
-        String sub = "Target exit reached successfully.";
+        // ── Grade badge (large, left column) ──
+        int gradeBoxSize = 72;
+        int gradeBoxX = boxX + 28;
+        int gradeBoxY = boxY + 56;
+        g2d.setColor(gradeColor.darker());
+        g2d.fillRoundRect(gradeBoxX, gradeBoxY, gradeBoxSize, gradeBoxSize, 14, 14);
+        g2d.setColor(gradeColor);
+        g2d.setStroke(new BasicStroke(2.5f));
+        g2d.drawRoundRect(gradeBoxX, gradeBoxY, gradeBoxSize, gradeBoxSize, 14, 14);
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 38));
         fm = g2d.getFontMetrics();
-        g2d.drawString(sub, boxX + (boxW - fm.stringWidth(sub)) / 2, boxY + 105);
+        g2d.setColor(Color.WHITE);
+        g2d.drawString(grade, gradeBoxX + (gradeBoxSize - fm.stringWidth(grade)) / 2,
+                gradeBoxY + gradeBoxSize / 2 + fm.getAscent() / 2 - 4);
+
+        // ── Star rating ──
+        int starY = gradeBoxY + gradeBoxSize + 10;
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 22));
+        String starStr = "★".repeat(stars) + "☆".repeat(totalGems - stars);
+        fm = g2d.getFontMetrics();
+        g2d.setColor(stars == totalGems ? new Color(255, 215, 0) : new Color(120, 120, 120));
+        g2d.drawString(starStr, gradeBoxX + (gradeBoxSize - fm.stringWidth(starStr)) / 2, starY + 22);
+
+        // ── Stats table (right column) ──
+        int statsX = boxX + 130;
+        int statsY = boxY + 65;
+        int rowH = 30;
+
+        Object[][] rows = {
+            {"Score",          String.format("%,d", score)},
+            {"Gems Collected", stats.getGemsCollected() + " / " + totalGems},
+            {"Walls Smashed",  String.valueOf(stats.getWallsSmashedCount())},
+            {"Moves Made",     String.valueOf(stats.getMovesCount())},
+            {"Rotations",      String.valueOf(stats.getRotationsCount())},
+            {"Time Taken",     formatTime(stats.getTimeTakenSeconds())},
+        };
+
+        for (int i = 0; i < rows.length; i++) {
+            int ry = statsY + i * rowH;
+            // Row highlight alternating
+            if (i % 2 == 0) {
+                g2d.setColor(new Color(255, 255, 255, 12));
+                g2d.fillRoundRect(statsX - 6, ry - 14, boxW - 140, 22, 6, 6);
+            }
+            g2d.setColor(new Color(160, 174, 192));
+            g2d.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            g2d.drawString((String) rows[i][0], statsX, ry);
+
+            g2d.setColor(Color.WHITE);
+            g2d.setFont(new Font("SansSerif", Font.BOLD, 12));
+            String val = (String) rows[i][1];
+            fm = g2d.getFontMetrics();
+            g2d.drawString(val, boxX + boxW - 40 - fm.stringWidth(val), ry);
+        }
+
+        // Divider line
+        g2d.setColor(new Color(55, 65, 80));
+        g2d.setStroke(new BasicStroke(1.2f));
+        g2d.drawLine(boxX + 20, boxY + boxH - 48, boxX + boxW - 20, boxY + boxH - 48);
 
         // Prompt
         g2d.setColor(new Color(246, 224, 94));
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 16));
-        String prompt = "Press [ENTER] or [SPACE] for Next Level";
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 14));
+        String prompt = "[ ENTER ] or [ SPACE ]  →  Next Level        [ R ]  →  Retry";
         fm = g2d.getFontMetrics();
-        g2d.drawString(prompt, boxX + (boxW - fm.stringWidth(prompt)) / 2, boxY + 160);
+        g2d.drawString(prompt, boxX + (boxW - fm.stringWidth(prompt)) / 2, boxY + boxH - 20);
     }
 
-    private void drawGameOverOverlay(Graphics2D g2d) {
-        // Dark red-tinted translucent overlay
-        g2d.setColor(new Color(20, 5, 5, 200));
-        g2d.fillRect(0, 0, getWidth(), getHeight());
-
-        // Modal Box
-        int boxW = 440;
-        int boxH = 220;
-        int boxX = (getWidth() - boxW) / 2;
-        int boxY = (getHeight() - boxH) / 2;
-
-        g2d.setColor(new Color(30, 16, 18));
-        g2d.fillRoundRect(boxX, boxY, boxW, boxH, 16, 16);
-        g2d.setColor(new Color(239, 68, 68));
-        g2d.setStroke(new BasicStroke(3.0f));
-        g2d.drawRoundRect(boxX, boxY, boxW, boxH, 16, 16);
-
-        // Title
-        g2d.setColor(new Color(239, 68, 68));
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 26));
-        String title = "TIME'S UP!";
-        FontMetrics fm = g2d.getFontMetrics();
-        g2d.drawString(title, boxX + (boxW - fm.stringWidth(title)) / 2, boxY + 60);
-
-        // Subtitle
-        g2d.setColor(Color.WHITE);
-        g2d.setFont(new Font("SansSerif", Font.PLAIN, 15));
-        String sub = "The clock ran out before you reached the exit.";
-        fm = g2d.getFontMetrics();
-        g2d.drawString(sub, boxX + (boxW - fm.stringWidth(sub)) / 2, boxY + 105);
-
-        // Prompt
-        g2d.setColor(new Color(246, 224, 94));
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 16));
-        String prompt = "Press [R] to Retry Level";
-        fm = g2d.getFontMetrics();
-        g2d.drawString(prompt, boxX + (boxW - fm.stringWidth(prompt)) / 2, boxY + 160);
+    private String formatTime(int seconds) {
+        return String.format("%02d:%02d", seconds / 60, seconds % 60);
     }
 
     /**

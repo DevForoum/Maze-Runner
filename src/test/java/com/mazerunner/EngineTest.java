@@ -12,6 +12,7 @@ public class EngineTest {
         System.out.println("=== RUNNING MAZE RUNNER ENGINE VERIFICATION TESTS ===");
         testLevelManager();
         testRotationAndGravityMapping();
+        testElapsedTimerBeyondScoreTarget();
         testPathfindingEveryLevel();
         testSlidePhysicsAndCrackedWallDestruction();
         testGuaranteedRunwaysInLevel3();
@@ -66,6 +67,29 @@ public class EngineTest {
         System.out.println("PASSED");
     }
 
+    private static void testElapsedTimerBeyondScoreTarget() {
+        System.out.print("Testing Elapsed Timer Beyond Score Target... ");
+        LevelConfig config = new LevelConfig(99, "Timer Test", "", 5, 5,
+                false, false, false, 0, false, 0, 1);
+        MazeModel model = new MazeModel(config);
+
+        assert model.getTimeDisplay().equals("00:00") : "Timer should start at 00:00";
+        model.tickTimer();
+        assert model.getElapsedTimeSeconds() == 1 : "Elapsed time should increment";
+        assert model.getTimeDisplay().equals("00:01") : "Timer should count upward";
+
+        model.tickTimer();
+        assert model.getElapsedTimeSeconds() == 2 : "Timer must keep running past the score target";
+        assert model.getTimeDisplay().equals("00:02") : "Display should show elapsed time past the target";
+
+        model.setPlayerPosition(4, 4);
+        assert model.isGoalReached() : "The test level should be complete";
+        model.tickTimer();
+        assert model.getElapsedTimeSeconds() == 2 : "Timer should stop when the level is complete";
+        assert model.getCurrentStats().getTimeTakenSeconds() == 2 : "Completion stats should record elapsed time";
+        System.out.println("PASSED");
+    }
+
     private static void testPathfindingEveryLevel() {
         System.out.print("Testing BFS Pathfinding Across All Levels... ");
         LevelManager lm = new LevelManager();
@@ -85,7 +109,7 @@ public class EngineTest {
 
     private static void testSlidePhysicsAndCrackedWallDestruction() {
         System.out.print("Testing Gravity Slide and Cracked Wall Destruction... ");
-        LevelConfig customConfig = new LevelConfig(99, "Test", "", 5, 5, true, true, true, 0, 0);
+        LevelConfig customConfig = new LevelConfig(99, "Test", "", 5, 5, true, true, true, 0, false, 0, 0);
         MazeModel model = new MazeModel(customConfig);
 
         // Manually create an open corridor from (0,0) down to (2,0)

@@ -18,40 +18,44 @@ public class LevelManager {
         levels.add(new LevelConfig(
                 1,
                 "The Training Grounds",
-                "Arrow Keys: Navigate | S: Shortest Path (BFS)",
+                "Arrow Keys: Navigate | Collect 3 Gems | [HOLD S] Radar Path",
                 8, 8,
                 false, false,
                 false, 0,
+                false, 3,
                 0
         ));
 
         levels.add(new LevelConfig(
                 2,
                 "Gravitational Shift",
-                "Q / E: Rotate Board | SPACE / G: Gravity Drop/Slide! | S: Hold for Path",
+                "Q / E: Rotate | SPACE/G: Drop | Step into linked Portals to Teleport!",
                 12, 12,
                 true, true,
                 false, 0,
+                true, 3,
                 60
         ));
 
         levels.add(new LevelConfig(
                 3,
                 "Breaker of Walls",
-                "Q / E: Rotate | SPACE / G: Slide >= 2 cells along runways to smash walls!",
+                "Q / E: Rotate | SPACE/G: Momentum Smash! Portals conserve slide velocity!",
                 14, 14,
                 true, true,
                 true, 8,
+                true, 3,
                 80
         ));
 
         levels.add(new LevelConfig(
                 4,
                 "Master Labyrinth",
-                "Q / E: Rotate | SPACE / G: Gravity Drop | S: Hold for Dynamic Path",
+                "Master all mechanics: Portals, Gravity Smashing & 3-Star Collection!",
                 18, 18,
                 true, true,
                 true, 14,
+                true, 3,
                 100
         ));
     }
@@ -66,10 +70,11 @@ public class LevelManager {
         return new LevelConfig(
                 lvl,
                 "Infinite Labyrinth Tier " + (lvl - 3),
-                "Q / E: Rotate | SPACE / G: Gravity Drop | S: Shortest Path",
+                "Q / E: Rotate | SPACE / G: Gravity Drop | Portals & Gems Active",
                 size, size,
                 true, true,
                 true, 12 + (lvl - 4) * 2,
+                true, 3,
                 Math.max(45, 90 - (lvl - 4) * 5)
         );
     }

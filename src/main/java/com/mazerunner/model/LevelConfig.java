@@ -13,12 +13,15 @@ public class LevelConfig {
     private final boolean gravityEnabled;
     private final boolean crackedWallsEnabled;
     private final int crackedWallsCount;
+    private final boolean portalsEnabled;
+    private final int gemsCount;
     private final int timeLimitSeconds;
 
     public LevelConfig(int levelNumber, String title, String instructions,
                        int rows, int cols,
                        boolean rotationEnabled, boolean gravityEnabled,
                        boolean crackedWallsEnabled, int crackedWallsCount,
+                       boolean portalsEnabled, int gemsCount,
                        int timeLimitSeconds) {
         this.levelNumber = levelNumber;
         this.title = title;
@@ -29,6 +32,8 @@ public class LevelConfig {
         this.gravityEnabled = gravityEnabled;
         this.crackedWallsEnabled = crackedWallsEnabled;
         this.crackedWallsCount = crackedWallsCount;
+        this.portalsEnabled = portalsEnabled;
+        this.gemsCount = gemsCount;
         this.timeLimitSeconds = timeLimitSeconds;
     }
 
@@ -41,5 +46,7 @@ public class LevelConfig {
     public boolean isGravityEnabled() { return gravityEnabled; }
     public boolean isCrackedWallsEnabled() { return crackedWallsEnabled; }
     public int getCrackedWallsCount() { return crackedWallsCount; }
+    public boolean isPortalsEnabled() { return portalsEnabled; }
+    public int getGemsCount() { return gemsCount; }
     public int getTimeLimitSeconds() { return timeLimitSeconds; }
 }
