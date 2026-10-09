@@ -5,10 +5,12 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Random;
+import java.util.Set;
 import java.util.Stack;
 
 /**
@@ -293,10 +295,10 @@ public class MazeModel {
     private record WallCandidate(int r, int c, Direction dir) {}
 
     /**
-     * Solves shortest path from current player position to goal using BFS.
+     * Solves shortest path from current player position to goal using BFS,
+     * treating linked portals as zero-cost transitions between their two cells.
      */
     public void solveBFS() {
-        // Reset path states
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
                 grid[r][c].setPath(false);
@@ -304,14 +306,15 @@ public class MazeModel {
         }
 
         Queue<Cell> queue = new ArrayDeque<>();
-        boolean[][] visited = new boolean[rows][cols];
+        Set<Cell> visited = new HashSet<>();
         Map<Cell, Cell> parentMap = new HashMap<>();
+        Map<Cell, Cell> portalEntryMap = new HashMap<>();
 
         Cell start = grid[playerRow][playerCol];
         Cell target = grid[rows - 1][cols - 1];
 
         queue.add(start);
-        visited[start.getRow()][start.getCol()] = true;
+        visited.add(start);
 
         while (!queue.isEmpty()) {
             Cell curr = queue.poll();
@@ -324,21 +327,40 @@ public class MazeModel {
                 if (!curr.hasWall(dir)) {
                     int nr = r + dir.getDr();
                     int nc = c + dir.getDc();
-                    if (isValidCoord(nr, nc) && !visited[nr][nc]) {
+                    if (isValidCoord(nr, nc)) {
                         Cell neighbor = grid[nr][nc];
-                        visited[nr][nc] = true;
-                        parentMap.put(neighbor, curr);
-                        queue.add(neighbor);
+                        Cell destination = neighbor;
+                        Cell portalEntry = null;
+                        if (neighbor.isPortal()) {
+                            Point portalTarget = neighbor.getPortalTarget();
+                            if (portalTarget != null && isValidCoord(portalTarget.y, portalTarget.x)) {
+                                destination = grid[portalTarget.y][portalTarget.x];
+                                portalEntry = neighbor;
+                            }
+                        }
+                        if (visited.add(destination)) {
+                            parentMap.put(destination, curr);
+                            if (portalEntry != null) {
+                                portalEntryMap.put(destination, portalEntry);
+                            }
+                            queue.add(destination);
+                        }
                     }
                 }
             }
         }
 
-        // Trace back shortest path
         Cell step = target;
         while (step != null && parentMap.containsKey(step)) {
             step.setPath(true);
+            Cell portalEntry = portalEntryMap.get(step);
+            if (portalEntry != null) {
+                portalEntry.setPath(true);
+            }
             step = parentMap.get(step);
+        }
+        if (target == start) {
+            target.setPath(true);
         }
         showingPath = true;
     }

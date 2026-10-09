@@ -7,6 +7,12 @@ import com.mazerunner.model.LevelManager;
 import com.mazerunner.model.MazeModel;
 import com.mazerunner.model.SlideResult;
 
+import java.awt.Point;
+import java.util.ArrayDeque;
+import java.util.HashSet;
+import java.util.Queue;
+import java.util.Set;
+
 public class EngineTest {
     public static void main(String[] args) {
         System.out.println("=== RUNNING MAZE RUNNER ENGINE VERIFICATION TESTS ===");
@@ -14,6 +20,7 @@ public class EngineTest {
         testRotationAndGravityMapping();
         testElapsedTimerBeyondScoreTarget();
         testPathfindingEveryLevel();
+        testPortalPathfindingAndReachability();
         testSlidePhysicsAndCrackedWallDestruction();
         testGuaranteedRunwaysInLevel3();
         System.out.println("=== ALL ENGINE TESTS PASSED SUCCESSFULLY! ===");
@@ -105,6 +112,104 @@ public class EngineTest {
             lm.advanceLevel();
         }
         System.out.println("PASSED");
+    }
+
+    private static void testPortalPathfindingAndReachability() {
+        System.out.print("Testing Portal-Aware Paths and Level 2 Reachability... ");
+
+        LevelConfig config = new LevelConfig(99, "Portal Test", "", 5, 5,
+                false, false, false, 0, true, 0, 0);
+        MazeModel trappedModel = new MazeModel(config);
+        Cell[][] trappedGrid = trappedModel.getGrid();
+        resetGridToWalls(trappedGrid);
+        openPassage(trappedGrid, 0, 0, Direction.RIGHT);
+        openPassage(trappedGrid, 0, 1, Direction.RIGHT);
+        trappedGrid[0][1].setPortal(1, new Point(4, 3));
+        trappedGrid[4][3].setPortal(2, new Point(0, 1));
+        trappedModel.solveBFS();
+
+        assert !canReachExit(trappedModel) : "Entering the portal should strand the player";
+        assert !trappedGrid[4][4].isPath() : "BFS must not show a route through a portal that cannot be exited";
+
+        MazeModel validModel = new MazeModel(config);
+        Cell[][] validGrid = validModel.getGrid();
+        resetGridToWalls(validGrid);
+        openPassage(validGrid, 0, 0, Direction.DOWN);
+        openPassage(validGrid, 3, 3, Direction.DOWN);
+        openPassage(validGrid, 4, 3, Direction.RIGHT);
+        validGrid[1][0].setPortal(1, new Point(3, 3));
+        validGrid[3][3].setPortal(2, new Point(1, 0));
+        validModel.solveBFS();
+
+        assert canReachExit(validModel) : "A linked portal route to the exit should be traversable";
+        assert validGrid[4][4].isPath() : "BFS should flag a reachable goal";
+        assert validGrid[1][0].isPath() && validGrid[3][3].isPath()
+                : "BFS should show both portal entry and exit cells";
+
+        LevelManager levelManager = new LevelManager();
+        levelManager.advanceLevel();
+        LevelConfig level2 = levelManager.getCurrentLevel();
+        for (int i = 0; i < 250; i++) {
+            MazeModel generated = new MazeModel(level2);
+            assert canReachExit(generated) : "Generated level 2 maze " + i + " has no portal-aware exit path";
+            generated.solveBFS();
+            assert generated.getGrid()[generated.getRows() - 1][generated.getCols() - 1].isPath()
+                    : "BFS missed the exit in generated level 2 maze " + i;
+        }
+        System.out.println("PASSED (250 generated level 2 mazes)");
+    }
+
+    private static void resetGridToWalls(Cell[][] grid) {
+        for (Cell[] row : grid) {
+            for (Cell cell : row) {
+                cell.reset();
+            }
+        }
+    }
+
+    private static void openPassage(Cell[][] grid, int row, int col, Direction direction) {
+        int nextRow = row + direction.getDr();
+        int nextCol = col + direction.getDc();
+        grid[row][col].removeWall(direction);
+        grid[nextRow][nextCol].removeWall(direction.opposite());
+    }
+
+    private static boolean canReachExit(MazeModel model) {
+        Cell[][] grid = model.getGrid();
+        boolean[][] visited = new boolean[model.getRows()][model.getCols()];
+        Queue<Cell> queue = new ArrayDeque<>();
+        Cell start = grid[model.getPlayerRow()][model.getPlayerCol()];
+        queue.add(start);
+        visited[start.getRow()][start.getCol()] = true;
+
+        while (!queue.isEmpty()) {
+            Cell current = queue.remove();
+            if (current.getRow() == model.getRows() - 1 && current.getCol() == model.getCols() - 1) {
+                return true;
+            }
+            for (Direction direction : Direction.values()) {
+                if (current.hasWall(direction)) {
+                    continue;
+                }
+                int row = current.getRow() + direction.getDr();
+                int col = current.getCol() + direction.getDc();
+                if (!model.isValidCoord(row, col)) {
+                    continue;
+                }
+                Cell destination = grid[row][col];
+                if (destination.isPortal()) {
+                    Point target = destination.getPortalTarget();
+                    if (target != null && model.isValidCoord(target.y, target.x)) {
+                        destination = grid[target.y][target.x];
+                    }
+                }
+                if (!visited[destination.getRow()][destination.getCol()]) {
+                    visited[destination.getRow()][destination.getCol()] = true;
+                    queue.add(destination);
+                }
+            }
+        }
+        return false;
     }
 
     private static void testSlidePhysicsAndCrackedWallDestruction() {
