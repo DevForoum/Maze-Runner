@@ -23,7 +23,8 @@ public class LevelManager {
                 false, false,
                 false, 0,
                 false, 3,
-                0
+                0,
+                false
         ));
 
         levels.add(new LevelConfig(
@@ -34,7 +35,8 @@ public class LevelManager {
                 true, true,
                 false, 0,
                 true, 3,
-                60
+                60,
+                false
         ));
 
         levels.add(new LevelConfig(
@@ -45,18 +47,20 @@ public class LevelManager {
                 true, true,
                 true, 8,
                 true, 3,
-                80
+                80,
+                false
         ));
 
         levels.add(new LevelConfig(
                 4,
-                "Master Labyrinth",
-                "Master all mechanics: Portals, Gravity Smashing & 3-Star Collection!",
+                "Shadow Labyrinth",
+                "Q / E: Rotate | SPACE/G: Drop | Beware the Chaser! Gravity slides stun it on impact!",
                 18, 18,
                 true, true,
                 true, 14,
                 true, 3,
-                100
+                100,
+                true
         ));
     }
 
@@ -70,12 +74,13 @@ public class LevelManager {
         return new LevelConfig(
                 lvl,
                 "Infinite Labyrinth Tier " + (lvl - 3),
-                "Q / E: Rotate | SPACE / G: Gravity Drop | Portals & Gems Active",
+                "Q / E: Rotate | SPACE / G: Gravity Drop | Portals, Gems & Chaser Active",
                 size, size,
                 true, true,
                 true, 12 + (lvl - 4) * 2,
                 true, 3,
-                Math.max(45, 90 - (lvl - 4) * 5)
+                Math.max(45, 90 - (lvl - 4) * 5),
+                true
         );
     }
 

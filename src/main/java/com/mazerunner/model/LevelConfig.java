@@ -16,13 +16,14 @@ public class LevelConfig {
     private final boolean portalsEnabled;
     private final int gemsCount;
     private final int timeLimitSeconds;
+    private final boolean chaserEnabled;
 
     public LevelConfig(int levelNumber, String title, String instructions,
                        int rows, int cols,
                        boolean rotationEnabled, boolean gravityEnabled,
                        boolean crackedWallsEnabled, int crackedWallsCount,
                        boolean portalsEnabled, int gemsCount,
-                       int timeLimitSeconds) {
+                       int timeLimitSeconds, boolean chaserEnabled) {
         this.levelNumber = levelNumber;
         this.title = title;
         this.instructions = instructions;
@@ -35,6 +36,20 @@ public class LevelConfig {
         this.portalsEnabled = portalsEnabled;
         this.gemsCount = gemsCount;
         this.timeLimitSeconds = timeLimitSeconds;
+        this.chaserEnabled = chaserEnabled;
+    }
+
+    public LevelConfig(int levelNumber, String title, String instructions,
+                       int rows, int cols,
+                       boolean rotationEnabled, boolean gravityEnabled,
+                       boolean crackedWallsEnabled, int crackedWallsCount,
+                       boolean portalsEnabled, int gemsCount,
+                       int timeLimitSeconds) {
+        this(levelNumber, title, instructions, rows, cols,
+             rotationEnabled, gravityEnabled,
+             crackedWallsEnabled, crackedWallsCount,
+             portalsEnabled, gemsCount,
+             timeLimitSeconds, false);
     }
 
     public int getLevelNumber() { return levelNumber; }
@@ -49,4 +64,5 @@ public class LevelConfig {
     public boolean isPortalsEnabled() { return portalsEnabled; }
     public int getGemsCount() { return gemsCount; }
     public int getTimeLimitSeconds() { return timeLimitSeconds; }
+    public boolean isChaserEnabled() { return chaserEnabled; }
 }

@@ -26,8 +26,11 @@ public class LevelStats {
     }
 
     public int getMovesCount() { return movesCount; }
+    public int getMoveCount() { return movesCount; }
     public int getRotationsCount() { return rotationsCount; }
+    public int getRotationCount() { return rotationsCount; }
     public int getWallsSmashedCount() { return wallsSmashedCount; }
+    public int getWallsSmashed() { return wallsSmashedCount; }
     public int getGemsCollected() { return gemsCollected; }
     public int getTotalGems() { return totalGems; }
     public int getTimeTakenSeconds() { return timeTakenSeconds; }

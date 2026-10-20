@@ -12,11 +12,12 @@ import javax.swing.Timer;
 import java.awt.Point;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.util.Collections;
 import java.util.List;
 
 /**
  * Controller orchestrating user input, rotation transformations,
- * gravity slide animations, wall impact resolutions, and level transitions.
+ * gravity slide animations, wall impact resolutions, chaser AI steps, and level transitions.
  */
 public class GameController extends KeyAdapter {
     private final MazeModel model;
@@ -26,6 +27,7 @@ public class GameController extends KeyAdapter {
     private boolean isSliding = false;
     private Timer slideAnimationTimer = null;
     private final Timer levelClockTimer;
+    private final Timer chaserTimer;
 
     public GameController(MazeModel model, MazePanel panel, LevelManager levelManager) {
         this.model = model;
@@ -34,17 +36,40 @@ public class GameController extends KeyAdapter {
 
         // 1-second interval level clock timer
         this.levelClockTimer = new Timer(1000, e -> {
-            if (!model.isGoalReached()) {
+            if (!model.isGoalReached() && !model.isCaughtByChaser()) {
                 model.tickTimer();
                 panel.repaint();
             }
         });
         this.levelClockTimer.start();
+
+        // 650ms interval for autonomous Chaser adversary step
+        this.chaserTimer = new Timer(650, e -> {
+            if (!isSliding && !panel.isRotating() && !model.isGoalReached() && !model.isCaughtByChaser()) {
+                if (model.hasChaser()) {
+                    model.stepChaser();
+                    if (model.isCaughtByChaser()) {
+                        SoundManager.getInstance().play(SoundManager.WALL_SMASH);
+                        panel.triggerScreenShake(14.0);
+                    }
+                    panel.repaint();
+                }
+            }
+        });
+        this.chaserTimer.start();
     }
 
     @Override
     public void keyPressed(KeyEvent e) {
         int keyCode = e.getKeyCode();
+
+        // Caught by Chaser state: only allow restart
+        if (model.isCaughtByChaser()) {
+            if (keyCode == KeyEvent.VK_R) {
+                restartLevel();
+            }
+            return;
+        }
 
         // Level Won / Advance state
         if (model.isGoalReached()) {
@@ -86,7 +111,7 @@ public class GameController extends KeyAdapter {
                 }
             }
 
-            // Dedicated Gravity Drop / Slide Trigger (Separate from rotation)
+            // Dedicated Gravity Drop / Slide Trigger (Environmental: affects both player & chaser)
             case KeyEvent.VK_SPACE, KeyEvent.VK_G -> {
                 if (config != null && config.isGravityEnabled() && !panel.isRotating()) {
                     triggerGravitySlide();
@@ -128,20 +153,30 @@ public class GameController extends KeyAdapter {
         boolean moved = model.movePlayer(gridDir);
         if (moved) {
             SoundManager.getInstance().play(SoundManager.MOVE);
+            if (model.isCaughtByChaser()) {
+                SoundManager.getInstance().play(SoundManager.WALL_SMASH);
+                panel.triggerScreenShake(14.0);
+            }
             panel.repaint();
         }
     }
 
     /**
      * Executes kinetic gravity slide along the environmental gravity vector.
-     * Animates momentum buildup and processes wall destruction upon impact.
+     * Environmental gravity pulls BOTH player and the Chaser adversary down simultaneously!
+     * Chasers impacting walls with high momentum (>= 2 cells) get stunned.
      */
     private void triggerGravitySlide() {
-        SlideResult result = model.simulateSlide();
-        List<Point> steps = result.getPathCoordinates();
+        SlideResult playerResult = model.simulateSlide();
+        SlideResult chaserResult = model.simulateChaserSlide();
 
-        // No sliding possible if blocked immediately
-        if (steps.size() <= 1) {
+        List<Point> playerSteps = playerResult.getPathCoordinates();
+        List<Point> chaserSteps = (chaserResult != null) ? chaserResult.getPathCoordinates() : Collections.emptyList();
+
+        boolean playerCanSlide = playerSteps.size() > 1;
+        boolean chaserCanSlide = chaserSteps.size() > 1;
+
+        if (!playerCanSlide && !chaserCanSlide) {
             return;
         }
 
@@ -151,47 +186,66 @@ public class GameController extends KeyAdapter {
             slideAnimationTimer.stop();
         }
 
-        final int totalSteps = steps.size();
+        final int maxSteps = Math.max(playerSteps.size(), chaserSteps.size());
         final int[] currentStepIndex = {0};
 
         // Slide animation timer (~40ms per cell traversed)
         slideAnimationTimer = new Timer(40, null);
         slideAnimationTimer.addActionListener(e -> {
             currentStepIndex[0]++;
+            int step = currentStepIndex[0];
 
-            if (currentStepIndex[0] < totalSteps) {
-                Point stepCoord = steps.get(currentStepIndex[0]);
-                model.setPlayerPosition(stepCoord.y, stepCoord.x);
-
-                // Pass progressive momentum and trail for visual buildup
-                List<Point> subTrail = steps.subList(0, currentStepIndex[0] + 1);
-                panel.setMomentum(currentStepIndex[0], subTrail);
+            if (step < maxSteps) {
+                if (step < playerSteps.size()) {
+                    Point pStep = playerSteps.get(step);
+                    model.setPlayerPosition(pStep.y, pStep.x);
+                    List<Point> subTrail = playerSteps.subList(0, step + 1);
+                    panel.setMomentum(step, subTrail);
+                }
+                if (step < chaserSteps.size() && model.hasChaser()) {
+                    Point cStep = chaserSteps.get(step);
+                    model.getChaser().setPosition(cStep.y, cStep.x);
+                }
+                panel.repaint();
             } else {
-                // Completed slide: process impact
                 slideAnimationTimer.stop();
                 isSliding = false;
 
-                // Wall destruction and impact effects
-                if (result.isWallBroken()) {
+                // Wall destruction and impact effects for player
+                if (playerResult.isWallBroken()) {
                     SoundManager.getInstance().play(SoundManager.WALL_SMASH);
                     panel.triggerScreenShake(18.0);
-                    Point impact = result.getImpactCell();
+                    Point impact = playerResult.getImpactCell();
                     if (impact != null) {
-                        panel.spawnDebrisAt(impact.y, impact.x, result.getImpactWallDirection());
+                        panel.spawnDebrisAt(impact.y, impact.x, playerResult.getImpactWallDirection());
                     }
-                } else if (result.hadHighMomentum()) {
-                    // Solid wall slam with high momentum
+                } else if (playerResult.hadHighMomentum()) {
                     SoundManager.getInstance().play(SoundManager.WALL_SMASH);
                     panel.triggerScreenShake(11.0);
                 }
 
-                // Reset momentum indicators after a brief stabilization delay
+                // Chaser impact stun if high momentum was accumulated
+                if (chaserResult != null && chaserResult.hadHighMomentum() && model.hasChaser()) {
+                    SoundManager.getInstance().play(SoundManager.WALL_SMASH);
+                    panel.triggerScreenShake(9.0);
+                }
+
+                // Check capture at end of slide
+                if (model.hasChaser() && !model.getChaser().isStunned() &&
+                        model.getPlayerRow() == model.getChaser().getRow() &&
+                        model.getPlayerCol() == model.getChaser().getCol()) {
+                    model.setCaughtByChaser(true);
+                    SoundManager.getInstance().play(SoundManager.WALL_SMASH);
+                    panel.triggerScreenShake(14.0);
+                }
+
                 Timer coolDownTimer = new Timer(180, ev -> {
                     panel.setMomentum(0, null);
                     ((Timer) ev.getSource()).stop();
                 });
                 coolDownTimer.setRepeats(false);
                 coolDownTimer.start();
+                panel.repaint();
             }
         });
 

@@ -16,7 +16,7 @@ import java.util.Stack;
 /**
  * Core game state manager handling generation (DFS Backtracking),
  * dynamic shortest path (BFS), maze rotation, gravity sliding physics,
- * and structural wall destruction.
+ * structural wall destruction, and the autonomous Chaser adversary.
  */
 public class MazeModel {
     private LevelConfig levelConfig;
@@ -29,6 +29,10 @@ public class MazeModel {
     private int rotationAngle = 0; // 0, 90, 180, 270 degrees clockwise
     private boolean showingPath = false;
     private final Random random = new Random();
+
+    // Chaser Adversary
+    private ChaserEntity chaser;
+    private boolean caughtByChaser = false;
 
     // Timer management
     private int elapsedTimeSeconds = 0;
@@ -48,6 +52,7 @@ public class MazeModel {
         this.rotationAngle = 0;
         this.showingPath = false;
         this.elapsedTimeSeconds = 0;
+        this.caughtByChaser = false;
 
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
@@ -58,7 +63,7 @@ public class MazeModel {
     }
 
     public void tickTimer() {
-        if (!isGoalReached()) {
+        if (!isGoalReached() && !caughtByChaser) {
             elapsedTimeSeconds++;
         }
     }
@@ -75,7 +80,7 @@ public class MazeModel {
 
     /**
      * Generates maze using Recursive Backtracking (DFS),
-     * resets player to (0,0), and injects cracked walls if configured.
+     * resets player to (0,0), and injects cracked walls, gems, portals, and chaser.
      */
     public void generateMaze() {
         for (int r = 0; r < rows; r++) {
@@ -124,6 +129,17 @@ public class MazeModel {
         // Inject linked portal pair
         if (levelConfig != null && levelConfig.isPortalsEnabled()) {
             injectPortals();
+        }
+
+        // Inject Chaser adversary if enabled
+        if (levelConfig != null && levelConfig.isChaserEnabled()) {
+            int chaserR = rows - 1;
+            int chaserC = Math.max(0, cols - 3);
+            chaser = new ChaserEntity(chaserR, chaserC);
+            caughtByChaser = false;
+        } else {
+            chaser = null;
+            caughtByChaser = false;
         }
 
         this.currentStats = new LevelStats();
@@ -229,27 +245,21 @@ public class MazeModel {
             boolean runwayCarved = false;
 
             if (wallDir == Direction.DOWN) {
-                // Horizontal wall between (r, c) and (r+1, c)
                 if (r >= 2) {
-                    // Approach from above (moving DOWN: r-2 -> r-1 -> r)
                     openPassage(r - 2, c, r - 1, c);
                     openPassage(r - 1, c, r, c);
                     runwayCarved = true;
                 } else if (r <= rows - 4) {
-                    // Approach from below (moving UP: r+3 -> r+2 -> r+1)
                     openPassage(r + 3, c, r + 2, c);
                     openPassage(r + 2, c, r + 1, c);
                     runwayCarved = true;
                 }
             } else if (wallDir == Direction.RIGHT) {
-                // Vertical wall between (r, c) and (r, c+1)
                 if (c >= 2) {
-                    // Approach from left (moving RIGHT: c-2 -> c-1 -> c)
                     openPassage(r, c - 2, r, c - 1);
                     openPassage(r, c - 1, r, c);
                     runwayCarved = true;
                 } else if (c <= cols - 4) {
-                    // Approach from right (moving LEFT: c+3 -> c+2 -> c+1)
                     openPassage(r, c + 3, r, c + 2);
                     openPassage(r, c + 2, r, c + 1);
                     runwayCarved = true;
@@ -338,7 +348,10 @@ public class MazeModel {
                                 portalEntry = neighbor;
                             }
                         }
-                        if (visited.add(destination)) {
+
+                        if (!visited.contains(destination)) {
+                            visited.add(destination);
+                            visited.add(neighbor);
                             parentMap.put(destination, curr);
                             if (portalEntry != null) {
                                 portalEntryMap.put(destination, portalEntry);
@@ -350,33 +363,35 @@ public class MazeModel {
             }
         }
 
-        Cell step = target;
-        while (step != null && parentMap.containsKey(step)) {
-            step.setPath(true);
-            Cell portalEntry = portalEntryMap.get(step);
+        // Backtrack path from target to start
+        Cell curr = target;
+        while (curr != null && curr != start) {
+            curr.setPath(true);
+            Cell portalEntry = portalEntryMap.get(curr);
             if (portalEntry != null) {
                 portalEntry.setPath(true);
             }
-            step = parentMap.get(step);
+            curr = parentMap.get(curr);
         }
-        if (target == start) {
-            target.setPath(true);
-        }
-        showingPath = true;
+        start.setPath(true);
     }
 
-    public void clearPath() {
+    public void clearBFSPath() {
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
                 grid[r][c].setPath(false);
             }
         }
-        showingPath = false;
+    }
+
+    public void clearPath() {
+        clearBFSPath();
     }
 
     public void togglePath() {
-        if (showingPath) {
-            clearPath();
+        showingPath = !showingPath;
+        if (!showingPath) {
+            clearBFSPath();
         } else {
             solveBFS();
         }
@@ -396,8 +411,6 @@ public class MazeModel {
 
     /**
      * Returns the grid-relative direction along which gravity pulls.
-     * When unrotated (0°), visual down is grid DOWN.
-     * With 90° clockwise canvas rotation, visual down aligns with grid RIGHT.
      */
     public Direction getGravityDirection() {
         return switch (rotationAngle) {
@@ -409,9 +422,6 @@ public class MazeModel {
         };
     }
 
-    /**
-     * Rotates maze by 90° clockwise.
-     */
     public void rotateClockwise() {
         currentStats.recordRotation();
         rotationAngle = (rotationAngle + 90) % 360;
@@ -423,8 +433,7 @@ public class MazeModel {
     }
 
     /**
-     * Simulates gravity slide along the current gravity direction.
-     * Evaluates traversal distance, momentum, gem collections, and portal transits.
+     * Simulates gravity slide for the player along current gravity direction.
      */
     public SlideResult simulateSlide() {
         Direction dir = getGravityDirection();
@@ -437,19 +446,15 @@ public class MazeModel {
 
         while (true) {
             Cell currentCell = grid[r][c];
-            // Stop if there is a wall in the sliding direction
             if (currentCell.hasWall(dir)) {
                 boolean isCracked = currentCell.isCracked(dir);
                 int dist = result.getDistanceTraversed();
                 int nr = r + dir.getDr();
                 int nc = c + dir.getDc();
 
-                // Momentum threshold: distance >= 2 to break cracked walls
                 if (dist >= 2 && isCracked && isValidCoord(nr, nc)) {
-                    // Shatter wall!
                     breakWall(r, c, dir);
                     result.setImpact(r, c, dir, true);
-                    // Move one step forward into the newly opened cell
                     r = nr;
                     c = nc;
                     result.addStep(r, c);
@@ -459,7 +464,6 @@ public class MazeModel {
                         currentStats.recordGemCollected();
                     }
                 } else {
-                    // Impact solid or non-breakable wall
                     result.setImpact(r, c, dir, false);
                 }
                 break;
@@ -476,13 +480,11 @@ public class MazeModel {
             c = nc;
             result.addStep(r, c);
 
-            // Collect gem during slide
             if (grid[r][c].hasGem()) {
                 grid[r][c].setGem(false);
                 currentStats.recordGemCollected();
             }
 
-            // Portal transit: preserve momentum and exit at linked portal
             if (grid[r][c].isPortal()) {
                 Point portalPoint = new Point(c, r);
                 if (!usedPortals.contains(portalPoint)) {
@@ -507,8 +509,13 @@ public class MazeModel {
     }
 
     /**
-     * Shatters and removes a wall between (r, c) and its neighbor in direction dir.
+     * Simulates gravity slide for the Chaser adversary.
      */
+    public SlideResult simulateChaserSlide() {
+        if (!hasChaser()) return null;
+        return chaser.simulateSlide(getGravityDirection(), grid, rows, cols);
+    }
+
     public void breakWall(int r, int c, Direction dir) {
         if (!isValidCoord(r, c)) return;
         currentStats.recordWallSmashed();
@@ -520,16 +527,16 @@ public class MazeModel {
             grid[nr][nc].breakWall(dir.opposite());
         }
 
-        // Recalculate path if active
         if (showingPath) {
             solveBFS();
         }
     }
 
-    /**
-     * Standard discrete player movement in direction dir.
-     */
     public boolean movePlayer(Direction dir) {
+        if (isGoalReached() || caughtByChaser) {
+            return false;
+        }
+
         if (grid[playerRow][playerCol].hasWall(dir)) {
             return false;
         }
@@ -567,6 +574,11 @@ public class MazeModel {
             }
         }
 
+        // Check Chaser capture
+        if (hasChaser() && !chaser.isStunned() && chaser.getRow() == playerRow && chaser.getCol() == playerCol) {
+            caughtByChaser = true;
+        }
+
         if (showingPath) {
             solveBFS();
         }
@@ -580,6 +592,10 @@ public class MazeModel {
             if (grid[playerRow][playerCol].hasGem()) {
                 grid[playerRow][playerCol].setGem(false);
                 currentStats.recordGemCollected();
+                SoundManager.getInstance().play(SoundManager.GEM_PICKUP);
+            }
+            if (hasChaser() && !chaser.isStunned() && chaser.getRow() == playerRow && chaser.getCol() == playerCol) {
+                caughtByChaser = true;
             }
             if (showingPath) {
                 solveBFS();
@@ -587,7 +603,26 @@ public class MazeModel {
         }
     }
 
+    /**
+     * Steps the Chaser adversary towards the player using BFS.
+     */
+    public boolean stepChaser() {
+        if (!hasChaser() || isGoalReached() || caughtByChaser) {
+            return false;
+        }
+        if (chaser.isStunned()) {
+            chaser.decrementStun();
+            return false;
+        }
+        boolean moved = chaser.stepTowards(playerRow, playerCol, grid, rows, cols);
+        if (chaser.getRow() == playerRow && chaser.getCol() == playerCol) {
+            caughtByChaser = true;
+        }
+        return moved;
+    }
+
     public boolean isGoalReached() {
+        if (caughtByChaser) return false;
         boolean reached = playerRow == rows - 1 && playerCol == cols - 1;
         if (reached) {
             int scoreTargetTimeRemaining = Math.max(0, levelConfig.getTimeLimitSeconds() - elapsedTimeSeconds);
@@ -595,7 +630,6 @@ public class MazeModel {
             currentStats.finalizeStats(elapsedTimeSeconds, scoreTargetTimeRemaining,
                     (levelConfig != null) ? levelConfig.getTimeLimitSeconds() : 0,
                     (levelConfig != null) ? levelConfig.getGemsCount() : 3);
-            // Play fanfare exactly once (first time goal is detected)
             if (!wasAlreadyFinished) {
                 SoundManager.getInstance().play(SoundManager.LEVEL_COMPLETE);
             }
@@ -639,7 +673,7 @@ public class MazeModel {
         }
     }
 
-    // Getters
+    // Getters and Chaser accessors
     public int getRows() { return rows; }
     public int getCols() { return cols; }
     public Cell[][] getGrid() { return grid; }
@@ -648,4 +682,9 @@ public class MazeModel {
     public int getRotationAngle() { return rotationAngle; }
     public LevelConfig getLevelConfig() { return levelConfig; }
     public boolean isShowingPath() { return showingPath; }
+
+    public ChaserEntity getChaser() { return chaser; }
+    public boolean hasChaser() { return chaser != null && chaser.isActive(); }
+    public boolean isCaughtByChaser() { return caughtByChaser; }
+    public void setCaughtByChaser(boolean caught) { this.caughtByChaser = caught; }
 }

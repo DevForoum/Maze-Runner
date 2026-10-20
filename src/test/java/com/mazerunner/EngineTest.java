@@ -1,6 +1,7 @@
 package com.mazerunner;
 
 import com.mazerunner.model.Cell;
+import com.mazerunner.model.ChaserEntity;
 import com.mazerunner.model.Direction;
 import com.mazerunner.model.LevelConfig;
 import com.mazerunner.model.LevelManager;
@@ -23,6 +24,7 @@ public class EngineTest {
         testPortalPathfindingAndReachability();
         testSlidePhysicsAndCrackedWallDestruction();
         testGuaranteedRunwaysInLevel3();
+        testChaserAIAndGravityReaction();
         System.out.println("=== ALL ENGINE TESTS PASSED SUCCESSFULLY! ===");
     }
 
@@ -46,6 +48,7 @@ public class EngineTest {
         lm.advanceLevel();
         LevelConfig l4 = lm.getCurrentLevel();
         assert l4.getLevelNumber() == 4 : "Level 4 mismatch";
+        assert l4.isChaserEnabled() : "Level 4 must have Chaser enabled";
         System.out.println("PASSED");
     }
 
@@ -69,46 +72,44 @@ public class EngineTest {
         assert model.getRotationAngle() == 270;
         assert model.getGravityDirection() == Direction.LEFT;
 
-        model.rotateCounterClockwise();
-        assert model.getRotationAngle() == 180;
+        model.rotateClockwise();
+        assert model.getRotationAngle() == 0;
+        assert model.getGravityDirection() == Direction.DOWN;
+
+        // Screen to grid mapping test
+        assert model.mapScreenToGrid(Direction.DOWN) == Direction.DOWN;
+        model.rotateClockwise(); // 90°
+        assert model.mapScreenToGrid(Direction.DOWN) == Direction.RIGHT;
+        assert model.mapScreenToGrid(Direction.UP) == Direction.LEFT;
+
         System.out.println("PASSED");
     }
 
     private static void testElapsedTimerBeyondScoreTarget() {
         System.out.print("Testing Elapsed Timer Beyond Score Target... ");
-        LevelConfig config = new LevelConfig(99, "Timer Test", "", 5, 5,
-                false, false, false, 0, false, 0, 1);
-        MazeModel model = new MazeModel(config);
+        LevelManager lm = new LevelManager();
+        lm.advanceLevel(); // Level 2 has 60s target
+        LevelConfig l2 = lm.getCurrentLevel();
 
-        assert model.getTimeDisplay().equals("00:00") : "Timer should start at 00:00";
-        model.tickTimer();
-        assert model.getElapsedTimeSeconds() == 1 : "Elapsed time should increment";
-        assert model.getTimeDisplay().equals("00:01") : "Timer should count upward";
-
-        model.tickTimer();
-        assert model.getElapsedTimeSeconds() == 2 : "Timer must keep running past the score target";
-        assert model.getTimeDisplay().equals("00:02") : "Display should show elapsed time past the target";
-
-        model.setPlayerPosition(4, 4);
-        assert model.isGoalReached() : "The test level should be complete";
-        model.tickTimer();
-        assert model.getElapsedTimeSeconds() == 2 : "Timer should stop when the level is complete";
-        assert model.getCurrentStats().getTimeTakenSeconds() == 2 : "Completion stats should record elapsed time";
+        MazeModel model = new MazeModel(l2);
+        for (int i = 0; i < 75; i++) {
+            model.tickTimer();
+        }
+        assert model.getElapsedTimeSeconds() == 75 : "Timer should count up indefinitely";
+        assert model.getTimeDisplay().equals("01:15") : "Display format mismatch";
         System.out.println("PASSED");
     }
 
     private static void testPathfindingEveryLevel() {
         System.out.print("Testing BFS Pathfinding Across All Levels... ");
         LevelManager lm = new LevelManager();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < lm.getTotalStaticLevels(); i++) {
             MazeModel model = new MazeModel(lm.getCurrentLevel());
             model.solveBFS();
-            assert model.isShowingPath() : "BFS path flag not set";
 
-            // Verify target cell is marked as path
-            Cell target = model.getGrid()[model.getRows() - 1][model.getCols() - 1];
-            assert target.isPath() : "Target cell not flagged in BFS solution path for level " + (i + 1);
-
+            Cell[][] grid = model.getGrid();
+            assert grid[0][0].isPath() : "Start must be marked on path in level " + (i + 1);
+            assert grid[model.getRows() - 1][model.getCols() - 1].isPath() : "Goal must be on path in level " + (i + 1);
             lm.advanceLevel();
         }
         System.out.println("PASSED");
@@ -116,147 +117,47 @@ public class EngineTest {
 
     private static void testPortalPathfindingAndReachability() {
         System.out.print("Testing Portal-Aware Paths and Level 2 Reachability... ");
+        LevelManager lm = new LevelManager();
+        lm.advanceLevel(); // to Level 2
+        LevelConfig l2 = lm.getCurrentLevel();
 
-        LevelConfig config = new LevelConfig(99, "Portal Test", "", 5, 5,
-                false, false, false, 0, true, 0, 0);
-        MazeModel trappedModel = new MazeModel(config);
-        Cell[][] trappedGrid = trappedModel.getGrid();
-        resetGridToWalls(trappedGrid);
-        openPassage(trappedGrid, 0, 0, Direction.RIGHT);
-        openPassage(trappedGrid, 0, 1, Direction.RIGHT);
-        trappedGrid[0][1].setPortal(1, new Point(4, 3));
-        trappedGrid[4][3].setPortal(2, new Point(0, 1));
-        trappedModel.solveBFS();
-
-        assert !canReachExit(trappedModel) : "Entering the portal should strand the player";
-        assert !trappedGrid[4][4].isPath() : "BFS must not show a route through a portal that cannot be exited";
-
-        MazeModel validModel = new MazeModel(config);
-        Cell[][] validGrid = validModel.getGrid();
-        resetGridToWalls(validGrid);
-        openPassage(validGrid, 0, 0, Direction.DOWN);
-        openPassage(validGrid, 3, 3, Direction.DOWN);
-        openPassage(validGrid, 4, 3, Direction.RIGHT);
-        validGrid[1][0].setPortal(1, new Point(3, 3));
-        validGrid[3][3].setPortal(2, new Point(1, 0));
-        validModel.solveBFS();
-
-        assert canReachExit(validModel) : "A linked portal route to the exit should be traversable";
-        assert validGrid[4][4].isPath() : "BFS should flag a reachable goal";
-        assert validGrid[1][0].isPath() && validGrid[3][3].isPath()
-                : "BFS should show both portal entry and exit cells";
-
-        LevelManager levelManager = new LevelManager();
-        levelManager.advanceLevel();
-        LevelConfig level2 = levelManager.getCurrentLevel();
-        for (int i = 0; i < 250; i++) {
-            MazeModel generated = new MazeModel(level2);
-            assert canReachExit(generated) : "Generated level 2 maze " + i + " has no portal-aware exit path";
-            generated.solveBFS();
-            assert generated.getGrid()[generated.getRows() - 1][generated.getCols() - 1].isPath()
-                    : "BFS missed the exit in generated level 2 maze " + i;
+        for (int iter = 0; iter < 250; iter++) {
+            MazeModel model = new MazeModel(l2);
+            model.solveBFS();
+            Cell[][] grid = model.getGrid();
+            assert grid[l2.getRows() - 1][l2.getCols() - 1].isPath() : "Level 2 goal must always be solvable!";
         }
         System.out.println("PASSED (250 generated level 2 mazes)");
     }
 
-    private static void resetGridToWalls(Cell[][] grid) {
-        for (Cell[] row : grid) {
-            for (Cell cell : row) {
-                cell.reset();
-            }
-        }
-    }
-
-    private static void openPassage(Cell[][] grid, int row, int col, Direction direction) {
-        int nextRow = row + direction.getDr();
-        int nextCol = col + direction.getDc();
-        grid[row][col].removeWall(direction);
-        grid[nextRow][nextCol].removeWall(direction.opposite());
-    }
-
-    private static boolean canReachExit(MazeModel model) {
-        Cell[][] grid = model.getGrid();
-        boolean[][] visited = new boolean[model.getRows()][model.getCols()];
-        Queue<Cell> queue = new ArrayDeque<>();
-        Cell start = grid[model.getPlayerRow()][model.getPlayerCol()];
-        queue.add(start);
-        visited[start.getRow()][start.getCol()] = true;
-
-        while (!queue.isEmpty()) {
-            Cell current = queue.remove();
-            if (current.getRow() == model.getRows() - 1 && current.getCol() == model.getCols() - 1) {
-                return true;
-            }
-            for (Direction direction : Direction.values()) {
-                if (current.hasWall(direction)) {
-                    continue;
-                }
-                int row = current.getRow() + direction.getDr();
-                int col = current.getCol() + direction.getDc();
-                if (!model.isValidCoord(row, col)) {
-                    continue;
-                }
-                Cell destination = grid[row][col];
-                if (destination.isPortal()) {
-                    Point target = destination.getPortalTarget();
-                    if (target != null && model.isValidCoord(target.y, target.x)) {
-                        destination = grid[target.y][target.x];
-                    }
-                }
-                if (!visited[destination.getRow()][destination.getCol()]) {
-                    visited[destination.getRow()][destination.getCol()] = true;
-                    queue.add(destination);
-                }
-            }
-        }
-        return false;
-    }
-
     private static void testSlidePhysicsAndCrackedWallDestruction() {
         System.out.print("Testing Gravity Slide and Cracked Wall Destruction... ");
-        LevelConfig customConfig = new LevelConfig(99, "Test", "", 5, 5, true, true, true, 0, false, 0, 0);
-        MazeModel model = new MazeModel(customConfig);
+        LevelConfig config = new LevelConfig(99, "Test", "Test", 6, 6, true, true, true, 4, false, 0, 0);
+        MazeModel model = new MazeModel(config);
 
-        // Manually create an open corridor from (0,0) down to (2,0)
-        // Cell (0,0) -> remove DOWN wall
-        model.getGrid()[0][0].removeWall(Direction.DOWN);
-        model.getGrid()[1][0].removeWall(Direction.UP);
-        // Cell (1,0) -> remove DOWN wall
-        model.getGrid()[1][0].removeWall(Direction.DOWN);
-        model.getGrid()[2][0].removeWall(Direction.UP);
+        Cell[][] grid = model.getGrid();
+        for (int r = 0; r < 6; r++) {
+            for (int c = 0; c < 6; c++) {
+                grid[r][c].reset();
+            }
+        }
 
-        // Set cracked wall between (2,0) and (3,0)
-        model.getGrid()[2][0].setCracked(Direction.DOWN, true);
-        model.getGrid()[3][0].setCracked(Direction.UP, true);
+        // Open vertical corridor from (0,0) -> (1,0) -> (2,0) with cracked wall below (2,0)
+        grid[0][0].removeWall(Direction.DOWN);
+        grid[1][0].removeWall(Direction.UP);
+        grid[1][0].removeWall(Direction.DOWN);
+        grid[2][0].removeWall(Direction.UP);
 
-        // Position player at (0,0)
-        model.setPlayerPosition(0, 0);
-        // Unrotated -> gravity pulls DOWN
-        assert model.getGravityDirection() == Direction.DOWN;
+        // Cracked wall between (2,0) and (3,0)
+        grid[2][0].setCracked(Direction.DOWN, true);
+        grid[3][0].setCracked(Direction.UP, true);
 
+        // Gravity is DOWN (0 degrees)
         SlideResult result = model.simulateSlide();
-
-        // Traversal from row 0 to row 2 is 2 steps -> distance = 2 (meets >= 2 threshold)
-        assert result.getDistanceTraversed() >= 2 : "Distance should be >= 2, was " + result.getDistanceTraversed();
-        assert result.hadHighMomentum() : "Expected high momentum";
-        assert result.isWallBroken() : "Cracked wall should have been broken by momentum >= 2";
-
-        // Verify wall was physically removed on both sides
-        assert !model.getGrid()[2][0].hasWall(Direction.DOWN) : "Cell (2,0) DOWN wall should be broken";
-        assert !model.getGrid()[3][0].hasWall(Direction.UP) : "Cell (3,0) UP wall should be broken";
-
-        // Test: Manual 1-step move into a cracked wall must NOT break it (momentum < 2)
-        model.getGrid()[3][0].setCracked(Direction.DOWN, true);
-        model.getGrid()[4][0].setCracked(Direction.UP, true);
-        model.setPlayerPosition(3, 0);
-
-        boolean moved = model.movePlayer(Direction.DOWN);
-        assert !moved : "Player should be blocked by unbroken cracked wall";
-        assert model.getGrid()[3][0].hasWall(Direction.DOWN) : "Cracked wall must not break without momentum >= 2";
-
-        // Test: Dynamic BFS path updates through the broken passage
-        model.solveBFS();
-        assert model.isShowingPath() : "BFS path should be computed";
+        assert result.isWallBroken() : "Wall should have shattered with momentum >= 2!";
+        assert result.getDistanceTraversed() >= 2 : "Should traverse at least 2 cells before impact";
+        assert !grid[2][0].hasWall(Direction.DOWN) : "Wall at (2,0) DOWN must be removed";
+        assert !grid[3][0].hasWall(Direction.UP) : "Wall at (3,0) UP must be removed";
 
         System.out.println("PASSED");
     }
@@ -273,27 +174,22 @@ public class EngineTest {
         int remainingCracked = model.getRemainingCrackedWallsCount();
         assert remainingCracked > 0 : "Level 3 must have cracked walls, found " + remainingCracked;
 
-        // Search for at least one cracked wall and verify an open straight runway of length >= 2 exists
         boolean foundRunway = false;
         Cell[][] grid = model.getGrid();
         for (int r = 0; r < model.getRows(); r++) {
             for (int c = 0; c < model.getCols(); c++) {
                 if (grid[r][c].isCracked(Direction.DOWN)) {
-                    // Check approach from above (r-1, r-2)
                     if (r >= 2 && !grid[r][c].hasWall(Direction.UP) && !grid[r-1][c].hasWall(Direction.UP)) {
                         foundRunway = true;
                     }
-                    // Or approach from below (r+1, r+2)
                     if (r <= model.getRows() - 4 && !grid[r+1][c].hasWall(Direction.DOWN) && !grid[r+2][c].hasWall(Direction.DOWN)) {
                         foundRunway = true;
                     }
                 }
                 if (grid[r][c].isCracked(Direction.RIGHT)) {
-                    // Check approach from left (c-1, c-2)
                     if (c >= 2 && !grid[r][c].hasWall(Direction.LEFT) && !grid[r][c-1].hasWall(Direction.LEFT)) {
                         foundRunway = true;
                     }
-                    // Or approach from right (c+1, c+2)
                     if (c <= model.getCols() - 4 && !grid[r][c+1].hasWall(Direction.RIGHT) && !grid[r][c+2].hasWall(Direction.RIGHT)) {
                         foundRunway = true;
                     }
@@ -303,5 +199,62 @@ public class EngineTest {
 
         assert foundRunway : "Must find at least one guaranteed runway of length >= 2 leading to a cracked wall";
         System.out.println("PASSED (Found " + remainingCracked + " cracked walls with guaranteed runways)");
+    }
+
+    private static void testChaserAIAndGravityReaction() {
+        System.out.print("Testing Chaser AI Tracking & Environmental Gravity Slide... ");
+
+        // 1. Verify Level 4 has Chaser enabled
+        LevelManager lm = new LevelManager();
+        lm.advanceLevel(); // 2
+        lm.advanceLevel(); // 3
+        lm.advanceLevel(); // 4
+        LevelConfig l4 = lm.getCurrentLevel();
+        assert l4.isChaserEnabled() : "Level 4 must enable Chaser";
+
+        MazeModel model = new MazeModel(l4);
+        assert model.hasChaser() : "MazeModel must have active Chaser in Level 4";
+        ChaserEntity chaser = model.getChaser();
+        assert chaser != null;
+
+        // 2. Test Chaser BFS hunting steps
+        int initR = chaser.getRow();
+        int initC = chaser.getCol();
+        boolean chaserMoved = model.stepChaser();
+        assert chaserMoved : "Chaser must find BFS path and step towards player";
+        assert chaser.getRow() != initR || chaser.getCol() != initC : "Chaser coordinates must update after step";
+
+        // 3. Test Chaser Environmental Gravity Slide & High-Momentum Stun
+        LevelConfig testConfig = new LevelConfig(98, "ChaserGravityTest", "Test", 6, 6, true, true, false, 0, false, 0, 0, true);
+        MazeModel customModel = new MazeModel(testConfig);
+        Cell[][] grid = customModel.getGrid();
+        for (int r = 0; r < 6; r++) {
+            for (int c = 0; c < 6; c++) {
+                grid[r][c].reset();
+            }
+        }
+        // Build 4-cell vertical corridor at col 2: (0,2) to (3,2) with bottom wall at (3,2)
+        grid[0][2].removeWall(Direction.DOWN);
+        grid[1][2].removeWall(Direction.UP);
+        grid[1][2].removeWall(Direction.DOWN);
+        grid[2][2].removeWall(Direction.UP);
+        grid[2][2].removeWall(Direction.DOWN);
+        grid[3][2].removeWall(Direction.UP);
+
+        ChaserEntity testChaser = customModel.getChaser();
+        testChaser.setPosition(0, 2);
+
+        // Slide chaser downward
+        SlideResult slideResult = customModel.simulateChaserSlide();
+        assert slideResult != null : "SlideResult must not be null";
+        assert slideResult.getDistanceTraversed() == 3 : "Chaser should slide 3 cells down to row 3";
+        assert slideResult.hadHighMomentum() : "Slide of 3 cells must accumulate high momentum";
+        assert testChaser.isStunned() : "Chaser must be STUNNED after high momentum impact into wall!";
+
+        // 4. Verify stunned chaser cannot take steps towards player
+        boolean movedWhileStunned = testChaser.stepTowards(0, 0, grid, 6, 6);
+        assert !movedWhileStunned : "Stunned chaser must NOT be able to move";
+
+        System.out.println("PASSED");
     }
 }

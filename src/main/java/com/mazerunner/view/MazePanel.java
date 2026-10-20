@@ -26,7 +26,8 @@ import java.util.Random;
  * High-performance double-buffered rendering panel.
  * Handles smooth animated AffineTransform maze rotation (~300ms easing),
  * visual gravity indicator, dynamic cracked walls,
- * momentum visual trail, screen shake, and floating game HUD.
+ * momentum visual trail, screen shake, floating game HUD,
+ * and the menacing Chaser adversary.
  */
 public class MazePanel extends JPanel {
     private static final int VIEW_SIZE = 720;
@@ -91,7 +92,6 @@ public class MazePanel extends JPanel {
 
     /**
      * MVC-clean debris spawner: computes all pixel geometry internally from cell coords.
-     * Controller passes only grid row/col — no geometry leaks across the boundary.
      */
     public void spawnDebrisAt(int cellRow, int cellCol, Direction wallDir) {
         int mazeAreaWidth = getWidth();
@@ -206,11 +206,12 @@ public class MazePanel extends JPanel {
             }
         }
 
-        // Render Goal, Portals, Gems, Trail and Player
+        // Render Goal, Portals, Gems, Trail, Player and Chaser
         drawGoal(g2d, originX, originY, cellSize);
         drawGemsAndPortals(g2d, originX, originY, cellSize);
         drawMomentumTrail(g2d, originX, originY, cellSize);
         drawPlayer(g2d, originX, originY, cellSize);
+        drawChaser(g2d, originX, originY, cellSize);
 
         // Restore transform for particles
         g2d.setTransform(mazeTransform);
@@ -224,9 +225,11 @@ public class MazePanel extends JPanel {
         g2d.setTransform(originalTransform);
         drawHUD(g2d);
 
-        // Render Win / Game Over Overlay
+        // Render Win / Caught Overlay
         if (model.isGoalReached()) {
             drawWinOverlay(g2d);
+        } else if (model.isCaughtByChaser()) {
+            drawCaughtOverlay(g2d);
         }
     }
 
@@ -250,13 +253,14 @@ public class MazePanel extends JPanel {
             boolean isCracked = cracked[i];
 
             if (isCracked) {
-                // Highly visible cracked wall: bright amber/orange with dashed fracture pattern
-                g2d.setColor(new Color(255, 140, 0));
-                g2d.setStroke(new BasicStroke(3.6f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10.0f, new float[]{6.0f, 3.0f}, 0.0f));
+                // Fractured / Structural weak wall styling
+                g2d.setColor(new Color(245, 158, 11)); // Amber alert
+                g2d.setStroke(new BasicStroke(3.0f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL,
+                        0, new float[]{3, 3}, 0));
             } else {
-                // Standard structural wall: Solid crisp off-white
-                g2d.setColor(new Color(230, 235, 245));
-                g2d.setStroke(new BasicStroke(2.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                // Reinforced solid structural boundary
+                g2d.setColor(new Color(110, 130, 160));
+                g2d.setStroke(new BasicStroke(2.5f));
             }
 
             switch (dir) {
@@ -269,15 +273,18 @@ public class MazePanel extends JPanel {
     }
 
     private void drawMomentumTrail(Graphics2D g2d, int originX, int originY, int cellSize) {
-        if (momentumTrail.size() <= 1) return;
+        if (momentumTrail.isEmpty()) return;
 
-        for (int i = 0; i < momentumTrail.size() - 1; i++) {
+        int alphaStep = Math.max(15, 120 / momentumTrail.size());
+        for (int i = 0; i < momentumTrail.size(); i++) {
             Point p = momentumTrail.get(i);
             int tx = originX + p.x * cellSize + 4;
             int ty = originY + p.y * cellSize + 4;
-            float alpha = (float) (i + 1) / (float) momentumTrail.size() * 0.45f;
-            g2d.setColor(new Color(0.2f, 0.9f, 0.6f, alpha));
-            g2d.fillRect(tx, ty, cellSize - 8, cellSize - 8);
+            int tSize = cellSize - 8;
+
+            int alpha = Math.min(180, (i + 1) * alphaStep);
+            g2d.setColor(new Color(255, 140, 0, alpha));
+            g2d.fillRoundRect(tx, ty, tSize, tSize, 6, 6);
         }
     }
 
@@ -286,7 +293,6 @@ public class MazePanel extends JPanel {
         int py = originY + model.getPlayerRow() * cellSize + 4;
         int pSize = cellSize - 8;
 
-        // Player glow based on momentum accumulation
         if (currentMomentum >= 2) {
             g2d.setColor(new Color(255, 120, 0, 160)); // Fiery kinetic boost glow
             g2d.fillRoundRect(px - 3, py - 3, pSize + 6, pSize + 6, 8, 8);
@@ -304,6 +310,52 @@ public class MazePanel extends JPanel {
         // Core highlight
         g2d.setColor(new Color(255, 255, 255, 180));
         g2d.fillRoundRect(px + 2, py + 2, Math.max(3, pSize / 3), Math.max(3, pSize / 3), 3, 3);
+    }
+
+    private void drawChaser(Graphics2D g2d, int originX, int originY, int cellSize) {
+        if (!model.hasChaser()) return;
+        com.mazerunner.model.ChaserEntity chaser = model.getChaser();
+        int cx = originX + chaser.getCol() * cellSize + cellSize / 2;
+        int cy = originY + chaser.getRow() * cellSize + cellSize / 2;
+        int r = Math.max(5, cellSize / 2 - 3);
+
+        long time = System.currentTimeMillis();
+
+        if (chaser.isStunned()) {
+            // Stunned: Dizzy, gray/amber pulsating core
+            g2d.setColor(new Color(245, 158, 11, 140));
+            g2d.fillOval(cx - r - 2, cy - r - 2, (r + 2) * 2, (r + 2) * 2);
+            g2d.setColor(new Color(156, 163, 175));
+            g2d.fillOval(cx - r, cy - r, r * 2, r * 2);
+
+            // Orbiting dizzy stars
+            g2d.setColor(new Color(253, 224, 71));
+            int numStars = 3;
+            double angleOffset = (time / 180.0);
+            for (int i = 0; i < numStars; i++) {
+                double a = angleOffset + (i * (2 * Math.PI / numStars));
+                int sx = cx + (int) (Math.cos(a) * (r + 5));
+                int sy = cy + (int) (Math.sin(a) * (r + 4));
+                g2d.fillOval(sx - 2, sy - 2, 4, 4);
+            }
+        } else {
+            // Active hunting: Sinister pulsing crimson aura
+            double pulse = 0.75 + 0.25 * Math.sin(time / 200.0);
+            int auraSize = (int) ((r + 4) * pulse);
+            g2d.setColor(new Color(239, 68, 68, 120));
+            g2d.fillOval(cx - auraSize, cy - auraSize, auraSize * 2, auraSize * 2);
+
+            // Chaser body
+            g2d.setColor(new Color(185, 28, 28));
+            g2d.fillOval(cx - r, cy - r, r * 2, r * 2);
+
+            // Menacing glowing eyes
+            int eyeOffset = Math.max(2, r / 3);
+            int eyeSize = Math.max(2, r / 3);
+            g2d.setColor(new Color(254, 240, 138));
+            g2d.fillOval(cx - eyeOffset - eyeSize / 2, cy - eyeSize / 2, eyeSize, eyeSize);
+            g2d.fillOval(cx + eyeOffset - eyeSize / 2, cy - eyeSize / 2, eyeSize, eyeSize);
+        }
     }
 
     private void drawGoal(Graphics2D g2d, int originX, int originY, int cellSize) {
@@ -336,98 +388,112 @@ public class MazePanel extends JPanel {
                 int halfSize = Math.max(3, cellSize / 3);
 
                 if (cell.hasGem()) {
-                    // Pulsating cyan-gold gem
                     double pulse = 0.75 + 0.25 * Math.sin((tick / 350.0) + r + c);
-                    int gsize = (int) (halfSize * pulse);
-                    // Outer glow ring
-                    g2d.setColor(new Color(0, 220, 220, 70));
-                    g2d.fillOval(cx - gsize - 3, cy - gsize - 3, (gsize + 3) * 2, (gsize + 3) * 2);
-                    // Gold diamond shape (rotated square)
-                    int[] xpts = {cx, cx + gsize, cx, cx - gsize};
-                    int[] ypts = {cy - gsize, cy, cy + gsize, cy};
-                    g2d.setColor(new Color(0, 240, 255));
-                    g2d.fillPolygon(xpts, ypts, 4);
-                    // Inner bright core
-                    g2d.setColor(new Color(255, 255, 200, 200));
-                    g2d.fillOval(cx - gsize / 3, cy - gsize / 3, gsize * 2 / 3, gsize * 2 / 3);
+                    int glowSize = (int) (halfSize * 1.5 * pulse);
+
+                    // Diamond glow halo
+                    g2d.setColor(new Color(6, 182, 212, 100));
+                    int[] gx = {cx, cx + glowSize, cx, cx - glowSize};
+                    int[] gy = {cy - glowSize, cy, cy + glowSize, cy};
+                    g2d.fillPolygon(gx, gy, 4);
+
+                    // Diamond core
+                    g2d.setColor(new Color(34, 211, 238));
+                    int[] dx = {cx, cx + halfSize, cx, cx - halfSize};
+                    int[] dy = {cy - halfSize, cy, cy + halfSize, cy};
+                    g2d.fillPolygon(dx, dy, 4);
+
+                    // Inner bright highlight
+                    g2d.setColor(Color.WHITE);
+                    int s = Math.max(2, halfSize / 2);
+                    int[] hx = {cx, cx + s, cx, cx - s};
+                    int[] hy = {cy - s, cy, cy + s, cy};
+                    g2d.fillPolygon(hx, hy, 4);
                 }
 
                 if (cell.isPortal()) {
-                    // Swirling ring portal — id 1 = Cyan, id 2 = Violet
-                    Color portalColor = (cell.getPortalId() == 1)
-                            ? new Color(0, 200, 255)
-                            : new Color(160, 0, 255);
-                    Color portalGlow = (cell.getPortalId() == 1)
-                            ? new Color(0, 200, 255, 50)
-                            : new Color(160, 0, 255, 50);
+                    int pId = cell.getPortalId();
+                    Color portalColor = pId == 1 ? new Color(6, 182, 212) : new Color(168, 85, 247);
+                    Color portalGlow  = pId == 1 ? new Color(6, 182, 212, 60) : new Color(168, 85, 247, 60);
 
-                    double spin = (tick / 400.0) * (cell.getPortalId() == 1 ? 1 : -1);
+                    double spin = (tick / 400.0) * (pId == 1 ? 1 : -1);
                     int pr = Math.max(4, cellSize / 2 - 2);
 
-                    // Pulsating glow disc
                     double pulseP = 0.85 + 0.15 * Math.sin(tick / 280.0);
                     int glowR = (int) (pr * pulseP) + 4;
                     g2d.setColor(portalGlow);
                     g2d.fillOval(cx - glowR, cy - glowR, glowR * 2, glowR * 2);
 
-                    // Outer ring
                     g2d.setColor(portalColor);
                     g2d.setStroke(new BasicStroke(2.8f));
                     g2d.drawOval(cx - pr, cy - pr, pr * 2, pr * 2);
 
-                    // Spinning inner arc
                     g2d.setStroke(new BasicStroke(2.2f));
                     g2d.drawArc(cx - pr + 3, cy - pr + 3, (pr - 3) * 2, (pr - 3) * 2,
                             (int) Math.toDegrees(spin), 120);
 
-                    // Center letter: P1 / P2
                     g2d.setColor(Color.WHITE);
                     g2d.setFont(new Font("SansSerif", Font.BOLD, Math.max(7, cellSize / 4)));
-                    String label = "P" + cell.getPortalId();
-                    FontMetrics fm = g2d.getFontMetrics();
-                    g2d.drawString(label, cx - fm.stringWidth(label) / 2, cy + fm.getAscent() / 2 - 1);
+                    String label = "P" + pId;
+                    FontMetrics pfm = g2d.getFontMetrics();
+                    g2d.drawString(label, cx - pfm.stringWidth(label) / 2, cy + pfm.getAscent() / 2 - 1);
                 }
             }
         }
     }
 
     private void drawHUD(Graphics2D g2d) {
-        LevelConfig config = model.getLevelConfig();
-
-        // Top HUD Header background
-        g2d.setColor(new Color(26, 32, 44));
+        g2d.setColor(new Color(20, 24, 34));
         g2d.fillRect(0, 0, getWidth(), TOP_HUD_HEIGHT);
         g2d.setColor(new Color(45, 55, 72));
-        g2d.setStroke(new BasicStroke(1.5f));
         g2d.drawLine(0, TOP_HUD_HEIGHT, getWidth(), TOP_HUD_HEIGHT);
 
-        // Level Title & Number
-        g2d.setColor(Color.WHITE);
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 17));
-        String titleStr = (config != null) ? "Level " + config.getLevelNumber() + ": " + config.getTitle() : "Maze Runner";
-        g2d.drawString(titleStr, 20, 27);
+        LevelConfig config = model.getLevelConfig();
 
-        // Live Timer Badge
-        String timeStr = "ELAPSED: " + model.getTimeDisplay();
-        Color timeBg = new Color(31, 41, 55);
-        int timeX = (config != null && config.isGravityEnabled()) ? getWidth() - 365 : getWidth() - 140;
-        drawBadge(g2d, timeStr, timeBg, timeX, 22);
+        // Level Title & Grid Dimensions
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 17));
+        g2d.setColor(Color.WHITE);
+        String title = (config != null) ? "STAGE " + config.getLevelNumber() + ": " + config.getTitle() : "MAZE RUNNER";
+        g2d.drawString(title, 20, 30);
+
+        g2d.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        g2d.setColor(new Color(160, 174, 192));
+        g2d.drawString("Grid: " + model.getCols() + "x" + model.getRows(), 20, 48);
+
+        // Timer Display
+        int timeLimit = (config != null) ? config.getTimeLimitSeconds() : 0;
+        int elapsed = model.getElapsedTimeSeconds();
+        int remaining = Math.max(0, timeLimit - elapsed);
+
+        g2d.setFont(new Font("Monospaced", Font.BOLD, 19));
+        String timeStr = (timeLimit > 0)
+                ? String.format("TIME: %02d:%02d", remaining / 60, remaining % 60)
+                : "TIME: " + model.getTimeDisplay();
+
+        Color timerColor = Color.WHITE;
+        if (timeLimit > 0) {
+            if (remaining <= 10) timerColor = new Color(248, 113, 113); // Urgent red
+            else if (remaining <= 25) timerColor = new Color(251, 191, 36); // Warning yellow
+            else timerColor = new Color(52, 211, 153); // Comfortable green
+        }
+        g2d.setColor(timerColor);
+        g2d.drawString(timeStr, 220, 30);
 
         // Feature Badges
-        int badgeX = 20;
-        int badgeY = 40;
+        int badgeX = 380;
+        int badgeY = 15;
+
         if (config != null) {
-            if (config.isRotationEnabled()) {
-                badgeX = drawBadge(g2d, "ROTATE: Q / E", new Color(79, 70, 229), badgeX, badgeY);
-            }
             if (config.isCrackedWallsEnabled()) {
-                int remaining = model.getRemainingCrackedWallsCount();
-                badgeX = drawBadge(g2d, "WALLS: " + remaining, new Color(217, 119, 6), badgeX, badgeY);
+                int crackedRem = model.getRemainingCrackedWallsCount();
+                Color cColor = crackedRem > 0 ? new Color(245, 158, 11) : new Color(75, 85, 99);
+                badgeX = drawBadge(g2d, "CRACKED WALLS: " + crackedRem, cColor, badgeX, badgeY);
             }
+
             if (config.isPortalsEnabled()) {
-                badgeX = drawBadge(g2d, "PORTALS ACTIVE", new Color(120, 0, 220), badgeX, badgeY);
+                badgeX = drawBadge(g2d, "PORTALS ACTIVE", new Color(124, 58, 237), badgeX, badgeY);
             }
-            // Live Gem Counter with stars
+
             int gemsCollected = model.getCurrentStats().getGemsCollected();
             int gemsTotal = config.getGemsCount();
             String gemStars = "\u2605".repeat(gemsCollected) + "\u2606".repeat(gemsTotal - gemsCollected);
@@ -437,9 +503,18 @@ public class MazePanel extends JPanel {
             if (model.isShowingPath()) {
                 badgeX = drawBadge(g2d, "RADAR PATH ACTIVE", new Color(16, 185, 129), badgeX, badgeY);
             }
+
+            if (model.hasChaser()) {
+                com.mazerunner.model.ChaserEntity chaser = model.getChaser();
+                if (chaser.isStunned()) {
+                    badgeX = drawBadge(g2d, "💫 STUNNED (" + chaser.getStunTicksRemaining() + ")", new Color(180, 83, 9), badgeX, badgeY);
+                } else {
+                    badgeX = drawBadge(g2d, "⚠ CHASER HUNTING", new Color(185, 28, 28), badgeX, badgeY);
+                }
+            }
         }
 
-        // Visual Gravity Direction Widget (Compass & Drop hint)
+        // Visual Gravity Direction Widget
         if (config != null && config.isGravityEnabled()) {
             drawGravityWidget(g2d, getWidth() - 250, 10);
         } else if (currentMomentum > 0) {
@@ -477,31 +552,34 @@ public class MazePanel extends JPanel {
         int w = 230;
         int h = 48;
 
-        // Background box
         g2d.setColor(new Color(17, 24, 39));
         g2d.fillRoundRect(x, y, w, h, 10, 10);
         g2d.setColor(new Color(59, 130, 246));
-        g2d.setStroke(new BasicStroke(1.8f));
+        g2d.setStroke(new BasicStroke(1.5f));
         g2d.drawRoundRect(x, y, w, h, 10, 10);
 
-        // Downward Gravity Icon & Label
-        g2d.setColor(new Color(96, 165, 250));
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 14));
-        g2d.drawString("GRAVITY: \u2193 DOWN", x + 12, y + 22);
+        int cx = x + 25;
+        int cy = y + h / 2;
+        int r = 16;
+        g2d.setColor(new Color(30, 41, 59));
+        g2d.fillOval(cx - r, cy - r, r * 2, r * 2);
 
-        // Action trigger label
+        Direction gravDir = model.getGravityDirection();
+        g2d.setColor(new Color(239, 68, 68));
+        g2d.setStroke(new BasicStroke(2.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
+        int tipX = cx + (int) (gravDir.getDc() * 11);
+        int tipY = cy + (int) (gravDir.getDr() * 11);
+        g2d.drawLine(cx, cy, tipX, tipY);
+        g2d.fillOval(tipX - 3, tipY - 3, 6, 6);
+
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 12));
         g2d.setColor(new Color(243, 244, 246));
-        g2d.setFont(new Font("SansSerif", Font.PLAIN, 11));
-        g2d.drawString("Press [SPACE] or [G] to Drop", x + 12, y + 38);
+        g2d.drawString("GRAVITY: " + gravDir.name(), x + 52, y + 20);
 
-        // Visual Downward Arrow Indicator
-        int arrowX = x + w - 32;
-        int arrowY = y + 14;
-        g2d.setColor(new Color(59, 130, 246));
-        g2d.fillOval(arrowX - 2, arrowY - 2, 24, 24);
-        g2d.setColor(Color.WHITE);
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 15));
-        g2d.drawString("\u2193", arrowX + 5, arrowY + 16);
+        g2d.setFont(new Font("SansSerif", Font.PLAIN, 10));
+        g2d.setColor(new Color(156, 163, 175));
+        g2d.drawString("[SPACE/G] Trigger Slide", x + 52, y + 36);
     }
 
     private int drawBadge(Graphics2D g2d, String text, Color bg, int x, int y) {
@@ -525,17 +603,14 @@ public class MazePanel extends JPanel {
         int totalGems = (model.getLevelConfig() != null) ? model.getLevelConfig().getGemsCount() : 3;
         int score = stats.calculateTotalScore();
 
-        // Dark overlay
         g2d.setColor(new Color(0, 0, 0, 195));
         g2d.fillRect(0, 0, getWidth(), getHeight());
 
-        // Wide scorecard modal
         int boxW = 500;
         int boxH = 320;
         int boxX = (getWidth() - boxW) / 2;
         int boxY = (getHeight() - boxH) / 2;
 
-        // Grade-based border color
         Color gradeColor = switch (grade) {
             case "S" -> new Color(255, 215, 0);   // Gold
             case "A" -> new Color(72, 187, 120);   // Green
@@ -549,14 +624,12 @@ public class MazePanel extends JPanel {
         g2d.setStroke(new BasicStroke(3.5f));
         g2d.drawRoundRect(boxX, boxY, boxW, boxH, 18, 18);
 
-        // ── STAGE COMPLETE banner ──
         g2d.setColor(gradeColor);
         g2d.setFont(new Font("SansSerif", Font.BOLD, 22));
         String banner = "STAGE COMPLETE!";
         FontMetrics fm = g2d.getFontMetrics();
         g2d.drawString(banner, boxX + (boxW - fm.stringWidth(banner)) / 2, boxY + 38);
 
-        // ── Grade badge (large, left column) ──
         int gradeBoxSize = 72;
         int gradeBoxX = boxX + 28;
         int gradeBoxY = boxY + 56;
@@ -571,7 +644,6 @@ public class MazePanel extends JPanel {
         g2d.drawString(grade, gradeBoxX + (gradeBoxSize - fm.stringWidth(grade)) / 2,
                 gradeBoxY + gradeBoxSize / 2 + fm.getAscent() / 2 - 4);
 
-        // ── Star rating ──
         int starY = gradeBoxY + gradeBoxSize + 10;
         g2d.setFont(new Font("SansSerif", Font.BOLD, 22));
         String starStr = "★".repeat(stars) + "☆".repeat(totalGems - stars);
@@ -579,49 +651,90 @@ public class MazePanel extends JPanel {
         g2d.setColor(stars == totalGems ? new Color(255, 215, 0) : new Color(120, 120, 120));
         g2d.drawString(starStr, gradeBoxX + (gradeBoxSize - fm.stringWidth(starStr)) / 2, starY + 22);
 
-        // ── Stats table (right column) ──
-        int statsX = boxX + 130;
-        int statsY = boxY + 65;
-        int rowH = 30;
+        int statsX = boxX + 128;
+        int statsY = boxY + 62;
+        int rowH = 26;
 
-        Object[][] rows = {
-            {"Score",          String.format("%,d", score)},
-            {"Gems Collected", stats.getGemsCollected() + " / " + totalGems},
-            {"Walls Smashed",  String.valueOf(stats.getWallsSmashedCount())},
-            {"Moves Made",     String.valueOf(stats.getMovesCount())},
-            {"Rotations",      String.valueOf(stats.getRotationsCount())},
-            {"Time Taken",     formatTime(stats.getTimeTakenSeconds())},
+        String[][] rows = {
+                {"FINAL SCORE", String.format("%,d pts", score)},
+                {"GEMS COLLECTED", stats.getGemsCollected() + " / " + totalGems},
+                {"WALLS SMASHED", String.valueOf(stats.getWallsSmashed())},
+                {"MOVES / ROTATIONS", stats.getMoveCount() + " / " + stats.getRotationCount()},
+                {"TIME TAKEN", formatTime(stats.getTimeTakenSeconds())}
         };
 
         for (int i = 0; i < rows.length; i++) {
             int ry = statsY + i * rowH;
-            // Row highlight alternating
-            if (i % 2 == 0) {
-                g2d.setColor(new Color(255, 255, 255, 12));
-                g2d.fillRoundRect(statsX - 6, ry - 14, boxW - 140, 22, 6, 6);
-            }
-            g2d.setColor(new Color(160, 174, 192));
             g2d.setFont(new Font("SansSerif", Font.PLAIN, 12));
-            g2d.drawString((String) rows[i][0], statsX, ry);
+            g2d.setColor(new Color(160, 174, 192));
+            g2d.drawString(rows[i][0], statsX, ry);
 
+            g2d.setFont(new Font("SansSerif", Font.BOLD, 13));
             g2d.setColor(Color.WHITE);
-            g2d.setFont(new Font("SansSerif", Font.BOLD, 12));
-            String val = (String) rows[i][1];
+            String val = rows[i][1];
             fm = g2d.getFontMetrics();
             g2d.drawString(val, boxX + boxW - 40 - fm.stringWidth(val), ry);
         }
 
-        // Divider line
         g2d.setColor(new Color(55, 65, 80));
         g2d.setStroke(new BasicStroke(1.2f));
         g2d.drawLine(boxX + 20, boxY + boxH - 48, boxX + boxW - 20, boxY + boxH - 48);
 
-        // Prompt
         g2d.setColor(new Color(246, 224, 94));
         g2d.setFont(new Font("SansSerif", Font.BOLD, 14));
         String prompt = "[ ENTER ] or [ SPACE ]  →  Next Level        [ R ]  →  Retry";
         fm = g2d.getFontMetrics();
         g2d.drawString(prompt, boxX + (boxW - fm.stringWidth(prompt)) / 2, boxY + boxH - 20);
+    }
+
+    private void drawCaughtOverlay(Graphics2D g2d) {
+        g2d.setColor(new Color(0, 0, 0, 205));
+        g2d.fillRect(0, 0, getWidth(), getHeight());
+
+        int boxW = 480;
+        int boxH = 230;
+        int boxX = (getWidth() - boxW) / 2;
+        int boxY = (getHeight() - boxH) / 2;
+
+        Color dangerColor = new Color(239, 68, 68);
+
+        g2d.setColor(new Color(24, 18, 24));
+        g2d.fillRoundRect(boxX, boxY, boxW, boxH, 16, 16);
+        g2d.setColor(dangerColor);
+        g2d.setStroke(new BasicStroke(3.0f));
+        g2d.drawRoundRect(boxX, boxY, boxW, boxH, 16, 16);
+
+        // Banner
+        g2d.setColor(dangerColor);
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 22));
+        String title = "CAUGHT BY THE CHASER!";
+        FontMetrics fm = g2d.getFontMetrics();
+        g2d.drawString(title, boxX + (boxW - fm.stringWidth(title)) / 2, boxY + 45);
+
+        // Message
+        g2d.setColor(new Color(226, 232, 240));
+        g2d.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        String msg1 = "The shadow adversary intercepted you in the labyrinth.";
+        fm = g2d.getFontMetrics();
+        g2d.drawString(msg1, boxX + (boxW - fm.stringWidth(msg1)) / 2, boxY + 80);
+
+        // Hint
+        g2d.setColor(new Color(251, 191, 36));
+        g2d.setFont(new Font("SansSerif", Font.ITALIC, 13));
+        String tip = "Tactical Tip: Rotate the maze and press SPACE/G to slide the chaser!";
+        fm = g2d.getFontMetrics();
+        g2d.drawString(tip, boxX + (boxW - fm.stringWidth(tip)) / 2, boxY + 115);
+
+        String tip2 = "High-momentum wall impacts will STUN the chaser for ~3.5 seconds.";
+        fm = g2d.getFontMetrics();
+        g2d.drawString(tip2, boxX + (boxW - fm.stringWidth(tip2)) / 2, boxY + 138);
+
+        // Retry Action
+        g2d.setColor(new Color(160, 174, 192));
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 14));
+        String retry = "[R] Restart Level";
+        fm = g2d.getFontMetrics();
+        g2d.drawString(retry, boxX + (boxW - fm.stringWidth(retry)) / 2, boxY + 190);
     }
 
     private String formatTime(int seconds) {
