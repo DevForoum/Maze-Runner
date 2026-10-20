@@ -1,32 +1,43 @@
 package com.mazerunner.view;
 
-import javax.swing.*;
-import java.awt.*;
+import javax.imageio.ImageIO;
+import javax.swing.JPanel;
+import javax.swing.Timer;
+import java.awt.AlphaComposite;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.GradientPaint;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
-import java.awt.geom.AffineTransform;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
 /**
- * MenuPanel — Animated main menu screen for Maze Runner.
+ * MenuPanel — Cinematic Main Menu for Maze Runner.
  *
- * Displays an animated starfield background, a glowing title, and three
- * selectable menu items. Communicates back to Main via a MenuCallback
- * when the user makes a choice.
- *
- * Navigation: UP/DOWN arrows to select; ENTER/SPACE to confirm.
+ * Phase 1 (Home Screen): Displays the full, high-brilliance artwork as the launch cover.
+ * Phase 2 (Transition): The artwork smoothly fades into a semi-transparent, glowing backdrop.
+ * Phase 3 (Interactive Menu): The menu buttons (PLAY, CONTROLS, QUIT) fade in with keyboard & mouse navigation.
  */
 public class MenuPanel extends JPanel {
 
-    // ── Callback interface ────────────────────────────────────────────────
     public interface MenuCallback {
         void onPlay();
         void onQuit();
     }
 
-    // ── Menu item definitions ─────────────────────────────────────────────
     private static final String[] MENU_ITEMS = {"PLAY", "CONTROLS", "QUIT"};
     private static final int ITEM_PLAY     = 0;
     private static final int ITEM_CONTROLS = 1;
@@ -37,37 +48,123 @@ public class MenuPanel extends JPanel {
 
     private final MenuCallback callback;
 
-    // ── Animation state ───────────────────────────────────────────────────
+    // ── Intro & Transition State ──────────────────────────────────────────
+    private boolean inSplashMode = true;
+    private boolean transitioning = false;
+    private float transitionProgress = 0.0f; // 0.0 = full artwork showcase, 1.0 = interactive menu backdrop
+    private long splashStartTime;
+
+    // ── Artwork Image ─────────────────────────────────────────────────────
+    private BufferedImage bgArtwork = null;
+
+    // ── Animation Loop & Starfield ────────────────────────────────────────
     private final Timer animTimer;
     private final List<Star> stars = new ArrayList<>();
-    private final List<FloatingCell> floatingCells = new ArrayList<>();
     private final Random rng = new Random();
 
     public MenuPanel(MenuCallback callback) {
         this.callback = callback;
-        setBackground(new Color(10, 14, 23));
+        setPreferredSize(new Dimension(820, 680));
+        setBackground(new Color(5, 7, 12));
         setFocusable(true);
 
-        // Generate starfield particles
-        for (int i = 0; i < 90; i++) stars.add(new Star());
-        // Generate background floating maze cells
-        for (int i = 0; i < 18; i++) floatingCells.add(new FloatingCell());
+        loadArtwork();
 
-        // 60 fps animation loop
-        animTimer = new Timer(16, e -> repaint());
+        // Starfield particles in the background
+        for (int i = 0; i < 70; i++) {
+            stars.add(new Star());
+        }
+
+        splashStartTime = System.currentTimeMillis();
+
+        // 60 FPS animation loop
+        animTimer = new Timer(16, e -> {
+            updateTransition();
+            repaint();
+        });
         animTimer.start();
 
+        // Keyboard navigation
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 handleKey(e.getKeyCode());
             }
         });
+
+        // Mouse click triggers transition or selection
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (inSplashMode) {
+                    startTransition();
+                } else if (!showControls) {
+                    // Check if clicked near an item
+                    int clickedItem = getMenuItemAtPoint(e.getX(), e.getY());
+                    if (clickedItem >= 0) {
+                        selectedIndex = clickedItem;
+                        confirmSelection();
+                    }
+                } else {
+                    showControls = false;
+                    repaint();
+                }
+            }
+        });
+    }
+
+    private void loadArtwork() {
+        try {
+            InputStream is = getClass().getResourceAsStream("/menu_bg.jpg");
+            if (is != null) {
+                bgArtwork = ImageIO.read(is);
+            }
+        } catch (Exception ignored) {}
+
+        if (bgArtwork == null) {
+            try {
+                File f = new File("menu_bg.jpg");
+                if (f.exists()) {
+                    bgArtwork = ImageIO.read(f);
+                } else {
+                    File f2 = new File("src/main/resources/menu_bg.jpg");
+                    if (f2.exists()) {
+                        bgArtwork = ImageIO.read(f2);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void startTransition() {
+        if (inSplashMode && !transitioning) {
+            transitioning = true;
+        }
+    }
+
+    private void updateTransition() {
+        // Auto-start transition after 3.5 seconds if user hasn't pressed any key yet
+        if (inSplashMode && !transitioning && System.currentTimeMillis() - splashStartTime > 3500) {
+            transitioning = true;
+        }
+
+        if (transitioning) {
+            transitionProgress += 0.04f;
+            if (transitionProgress >= 1.0f) {
+                transitionProgress = 1.0f;
+                transitioning = false;
+                inSplashMode = false;
+            }
+        }
     }
 
     private void handleKey(int keyCode) {
+        if (inSplashMode) {
+            startTransition();
+            return;
+        }
+
         if (showControls) {
-            // Any key closes controls overlay
             showControls = false;
             repaint();
             return;
@@ -100,6 +197,23 @@ public class MenuPanel extends JPanel {
         }
     }
 
+    private int getMenuItemAtPoint(int mx, int my) {
+        int w = getWidth(), h = getHeight();
+        int itemStartY = h / 2 + 55;
+        int itemSpacing = 52;
+        int barW = 280, barH = 42;
+        int barX = (w - barW) / 2;
+
+        for (int i = 0; i < MENU_ITEMS.length; i++) {
+            int iy = itemStartY + i * itemSpacing;
+            int barY = iy - 30;
+            if (mx >= barX && mx <= barX + barW && my >= barY && my <= barY + barH) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -110,214 +224,252 @@ public class MenuPanel extends JPanel {
         int w = getWidth(), h = getHeight();
         long tick = System.currentTimeMillis();
 
-        // ── Background gradient ──
-        GradientPaint bg = new GradientPaint(0, 0, new Color(10, 14, 23), 0, h, new Color(16, 24, 44));
-        g2d.setPaint(bg);
+        // ── 1. Base dark backdrop ──
+        g2d.setColor(new Color(6, 8, 14));
         g2d.fillRect(0, 0, w, h);
 
-        // ── Floating background maze cells ──
-        for (FloatingCell fc : floatingCells) {
-            fc.update(w, h);
-            fc.draw(g2d);
-        }
-
-        // ── Starfield ──
+        // ── 2. Ambient background starfield ──
         for (Star star : stars) {
             star.update(w, h);
             star.draw(g2d);
         }
 
-        // ── Title glow ──
-        drawTitle(g2d, w, h, tick);
+        // ── 3. Render Artwork (Home Screen or Dimmed Menu Backdrop) ──
+        if (bgArtwork != null) {
+            drawArtworkBackdrop(g2d, w, h);
+        }
 
-        if (showControls) {
-            drawControlsOverlay(g2d, w, h);
-        } else {
-            drawMenuItems(g2d, w, h, tick);
-            drawFooter(g2d, w, h);
+        // ── 4. Phase 1: Splash Mode (Prompt overlay) ──
+        if (inSplashMode) {
+            drawSplashPrompt(g2d, w, h, tick);
+        }
+
+        // ── 5. Phase 2 & 3: Interactive Menu Overlay ──
+        if (transitionProgress > 0.05f) {
+            float menuAlpha = Math.min(1.0f, (transitionProgress - 0.05f) / 0.95f);
+            Graphics2D menuG2d = (Graphics2D) g2d.create();
+            menuG2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, menuAlpha));
+
+            if (showControls) {
+                drawControlsOverlay(menuG2d, w, h);
+            } else {
+                drawMenuItems(menuG2d, w, h, tick);
+                drawFooter(menuG2d, w, h);
+            }
+            menuG2d.dispose();
         }
     }
 
-    private void drawTitle(Graphics2D g2d, int w, int h, long tick) {
-        int titleY = h / 4;
+    /**
+     * Renders the artwork image centered, scaling smoothly as it transitions
+     * from 100% full brilliance down to ~38% opacity with an ambient vignette.
+     */
+    private void drawArtworkBackdrop(Graphics2D g2d, int w, int h) {
+        int imgW = bgArtwork.getWidth();
+        int imgH = bgArtwork.getHeight();
 
-        // Animated glow halo
-        double glow = 0.55 + 0.45 * Math.sin(tick / 900.0);
-        int haloR = 160;
-        Color glowColor = new Color(0, 180, 255, (int)(glow * 45));
-        g2d.setColor(glowColor);
-        g2d.fillOval(w / 2 - haloR, titleY - haloR / 2 - 20, haloR * 2, haloR);
+        // Calculate aspect-preserving scale to fill viewport nicely
+        double scale = Math.max((double) w / imgW, (double) h / imgH);
+        int drawW = (int) (imgW * scale);
+        int drawH = (int) (imgH * scale);
+        int drawX = (w - drawW) / 2;
+        int drawY = (h - drawH) / 2;
 
-        // Main title — two-tone "MAZE RUNNER"
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 58));
-        FontMetrics fm = g2d.getFontMetrics();
-        String part1 = "MAZE ";
-        String part2 = "RUNNER";
-        int totalW = fm.stringWidth(part1 + part2);
-        int startX = (w - totalW) / 2;
+        // When in splash mode, opacity is 1.0f. During transition, drops smoothly to 0.40f.
+        float artworkAlpha = 1.0f - (transitionProgress * 0.62f);
+        Graphics2D imgG2d = (Graphics2D) g2d.create();
+        imgG2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, Math.max(0.15f, artworkAlpha)));
+        imgG2d.drawImage(bgArtwork, drawX, drawY, drawW, drawH, null);
+        imgG2d.dispose();
 
-        // Shadow layer
-        g2d.setColor(new Color(0, 0, 0, 120));
-        g2d.drawString(part1 + part2, startX + 3, titleY + 3);
+        // Ambient dark vignette overlay when transitioning to menu mode for text contrast
+        if (transitionProgress > 0.0f) {
+            float vignetteAlpha = transitionProgress * 0.58f;
+            Graphics2D vigG2d = (Graphics2D) g2d.create();
+            vigG2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, vignetteAlpha));
+            GradientPaint vignette = new GradientPaint(0, 0, new Color(5, 7, 12, 120),
+                    0, h, new Color(5, 7, 12, 220));
+            vigG2d.setPaint(vignette);
+            vigG2d.fillRect(0, 0, w, h);
+            vigG2d.dispose();
+        }
+    }
 
-        // "MAZE" in cyan
-        g2d.setColor(new Color(0, 220, 255));
-        g2d.drawString(part1, startX, titleY);
+    private void drawSplashPrompt(Graphics2D g2d, int w, int h, long tick) {
+        float promptAlpha = (1.0f - transitionProgress);
+        if (promptAlpha <= 0.02f) return;
 
-        // "RUNNER" in warm white
-        g2d.setColor(Color.WHITE);
-        g2d.drawString(part2, startX + fm.stringWidth(part1), titleY);
+        double pulse = 0.65 + 0.35 * Math.sin(tick / 320.0);
+        int alphaInt = (int) (Math.min(255, 255 * pulse * promptAlpha));
 
-        // Subtitle tagline
-        g2d.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        fm = g2d.getFontMetrics();
-        String tagline = "Rotate. Drop. Smash. Escape.";
-        g2d.setColor(new Color(120, 160, 200, 200));
-        g2d.drawString(tagline, (w - fm.stringWidth(tagline)) / 2, titleY + 30);
+        Graphics2D promptG2d = (Graphics2D) g2d.create();
+        promptG2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, promptAlpha));
+
+        String prompt = "PRESS ANY KEY TO START";
+        promptG2d.setFont(new Font("SansSerif", Font.BOLD, 17));
+        FontMetrics fm = promptG2d.getFontMetrics();
+        int pw = fm.stringWidth(prompt) + 40;
+        int ph = 38;
+        int px = (w - pw) / 2;
+        int py = h - 68;
+
+        // Glowing backdrop capsule
+        promptG2d.setColor(new Color(0, 0, 0, (int)(160 * promptAlpha)));
+        promptG2d.fillRoundRect(px, py, pw, ph, 20, 20);
+
+        promptG2d.setColor(new Color(0, 220, 255, (int)(100 * pulse * promptAlpha)));
+        promptG2d.setStroke(new BasicStroke(1.8f));
+        promptG2d.drawRoundRect(px, py, pw, ph, 20, 20);
+
+        // Glowing text
+        promptG2d.setColor(new Color(0, 240, 255, alphaInt));
+        promptG2d.drawString(prompt, px + 20, py + 25);
+
+        promptG2d.dispose();
     }
 
     private void drawMenuItems(Graphics2D g2d, int w, int h, long tick) {
-        int itemStartY = h / 2 + 10;
-        int itemSpacing = 60;
+        int itemStartY = h / 2 + 55;
+        int itemSpacing = 52;
 
         for (int i = 0; i < MENU_ITEMS.length; i++) {
             boolean selected = (i == selectedIndex);
             int iy = itemStartY + i * itemSpacing;
 
-            if (selected) {
-                // Pulsating selection highlight bar
-                double pulse = 0.7 + 0.3 * Math.sin(tick / 350.0);
-                int barW = 280, barH = 44;
-                int barX = (w - barW) / 2;
-                int barY = iy - 32;
+            int barW = 270, barH = 42;
+            int barX = (w - barW) / 2;
+            int barY = iy - 30;
 
-                g2d.setColor(new Color(0, 180, 255, (int)(50 * pulse)));
+            if (selected) {
+                double pulse = 0.7 + 0.3 * Math.sin(tick / 350.0);
+
+                // Selection glowing box
+                g2d.setColor(new Color(6, 182, 212, (int)(60 * pulse)));
                 g2d.fillRoundRect(barX, barY, barW, barH, 12, 12);
-                g2d.setColor(new Color(0, 220, 255, (int)(180 * pulse)));
-                g2d.setStroke(new BasicStroke(2.0f));
+
+                g2d.setColor(new Color(34, 211, 238, (int)(210 * pulse)));
+                g2d.setStroke(new BasicStroke(2.2f));
                 g2d.drawRoundRect(barX, barY, barW, barH, 12, 12);
 
-                // Animated side arrows ▶
-                g2d.setColor(new Color(0, 220, 255));
+                // Animated side arrows ▶ ◀
+                g2d.setColor(new Color(34, 211, 238));
                 g2d.setFont(new Font("SansSerif", Font.BOLD, 18));
-                int arrowOff = (int)(4 * Math.sin(tick / 250.0));
-                g2d.drawString("▶", barX - 28 + arrowOff, iy);
-                g2d.drawString("◀", barX + barW + 10 - arrowOff, iy);
+                int arrowOff = (int)(4 * Math.sin(tick / 240.0));
+                g2d.drawString("▶", barX - 26 + arrowOff, iy - 2);
+                g2d.drawString("◀", barX + barW + 10 - arrowOff, iy - 2);
 
-                g2d.setFont(new Font("SansSerif", Font.BOLD, 22));
+                g2d.setFont(new Font("SansSerif", Font.BOLD, 21));
                 g2d.setColor(Color.WHITE);
             } else {
-                g2d.setFont(new Font("SansSerif", Font.PLAIN, 20));
-                g2d.setColor(new Color(100, 130, 165));
+                g2d.setColor(new Color(15, 23, 42, 130));
+                g2d.fillRoundRect(barX, barY, barW, barH, 12, 12);
+                g2d.setColor(new Color(51, 65, 85, 140));
+                g2d.setStroke(new BasicStroke(1.2f));
+                g2d.drawRoundRect(barX, barY, barW, barH, 12, 12);
+
+                g2d.setFont(new Font("SansSerif", Font.PLAIN, 19));
+                g2d.setColor(new Color(148, 163, 184));
             }
 
             FontMetrics fm = g2d.getFontMetrics();
-            g2d.drawString(MENU_ITEMS[i], (w - fm.stringWidth(MENU_ITEMS[i])) / 2, iy);
+            g2d.drawString(MENU_ITEMS[i], (w - fm.stringWidth(MENU_ITEMS[i])) / 2, iy - 2);
         }
     }
 
     private void drawControlsOverlay(Graphics2D g2d, int w, int h) {
-        // Dark translucent backdrop
-        g2d.setColor(new Color(0, 0, 0, 200));
+        g2d.setColor(new Color(0, 0, 0, 215));
         g2d.fillRect(0, 0, w, h);
 
-        int boxW = 480, boxH = 400;
+        int boxW = 500, boxH = 430;
         int boxX = (w - boxW) / 2, boxY = (h - boxH) / 2;
 
-        g2d.setColor(new Color(18, 26, 44));
+        g2d.setColor(new Color(15, 23, 42));
         g2d.fillRoundRect(boxX, boxY, boxW, boxH, 18, 18);
-        g2d.setColor(new Color(0, 180, 255));
+        g2d.setColor(new Color(6, 182, 212));
         g2d.setStroke(new BasicStroke(2.5f));
         g2d.drawRoundRect(boxX, boxY, boxW, boxH, 18, 18);
 
         // Header
         g2d.setFont(new Font("SansSerif", Font.BOLD, 22));
-        g2d.setColor(new Color(0, 220, 255));
+        g2d.setColor(new Color(34, 211, 238));
         FontMetrics fm = g2d.getFontMetrics();
-        String title = "CONTROLS";
+        String title = "CONTROLS REFERENCE";
         g2d.drawString(title, boxX + (boxW - fm.stringWidth(title)) / 2, boxY + 42);
 
-        g2d.setColor(new Color(55, 70, 90));
+        g2d.setColor(new Color(51, 65, 85));
         g2d.setStroke(new BasicStroke(1.0f));
-        g2d.drawLine(boxX + 20, boxY + 55, boxX + boxW - 20, boxY + 55);
+        g2d.drawLine(boxX + 20, boxY + 56, boxX + boxW - 20, boxY + 56);
 
-        // Two-column key table
         String[][] controls = {
-            {"↑ ↓ ← →",         "Move player"},
-            {"Q",                "Rotate maze counter-clockwise"},
-            {"E",                "Rotate maze clockwise"},
-            {"SPACE / G",        "Gravity drop (slide)"},
-            {"Hold S",           "Show BFS radar path"},
-            {"R",                "Restart current level"},
-            {"ENTER / SPACE",    "Next level (when completed)"},
-            {"M",                "Toggle mute sound"},
+                {"↑ ↓ ← → / WASD",  "Move player in corridor"},
+                {"Q / E",           "Rotate maze 90° (smooth ease-out)"},
+                {"SPACE / G",       "Kinetic gravity drop (slides player & chaser)"},
+                {"Hold S",          "Active BFS radar path reveal"},
+                {"R",               "Instant level retry"},
+                {"ENTER / SPACE",   "Advance to next stage upon victory"},
+                {"M",               "Toggle mute audio"},
+                {"Tactical Stun",   "High-momentum slides stun the chaser for ~3.5s"}
         };
 
-        int rowY = boxY + 82;
-        int rowH = 35;
+        int rowY = boxY + 84;
+        int rowH = 36;
         for (int i = 0; i < controls.length; i++) {
             int ry = rowY + i * rowH;
 
-            // Alternate row tint
             if (i % 2 == 0) {
-                g2d.setColor(new Color(255, 255, 255, 10));
-                g2d.fillRoundRect(boxX + 14, ry - 16, boxW - 28, 26, 6, 6);
+                g2d.setColor(new Color(255, 255, 255, 8));
+                g2d.fillRoundRect(boxX + 14, ry - 17, boxW - 28, 27, 6, 6);
             }
 
             // Key badge
-            g2d.setColor(new Color(40, 60, 90));
-            g2d.fillRoundRect(boxX + 20, ry - 14, 130, 22, 6, 6);
-            g2d.setColor(new Color(0, 180, 255));
+            g2d.setColor(new Color(30, 41, 59));
+            g2d.fillRoundRect(boxX + 20, ry - 15, 145, 23, 6, 6);
+            g2d.setColor(new Color(6, 182, 212));
             g2d.setStroke(new BasicStroke(1.2f));
-            g2d.drawRoundRect(boxX + 20, ry - 14, 130, 22, 6, 6);
+            g2d.drawRoundRect(boxX + 20, ry - 15, 145, 23, 6, 6);
 
             g2d.setFont(new Font("SansSerif", Font.BOLD, 11));
             g2d.setColor(Color.WHITE);
             fm = g2d.getFontMetrics();
             String key = controls[i][0];
-            g2d.drawString(key, boxX + 20 + (130 - fm.stringWidth(key)) / 2, ry + 2);
+            g2d.drawString(key, boxX + 20 + (145 - fm.stringWidth(key)) / 2, ry + 2);
 
             // Description
             g2d.setFont(new Font("SansSerif", Font.PLAIN, 12));
-            g2d.setColor(new Color(180, 200, 220));
-            g2d.drawString(controls[i][1], boxX + 168, ry + 2);
+            g2d.setColor(new Color(203, 213, 225));
+            g2d.drawString(controls[i][1], boxX + 180, ry + 2);
         }
 
-        // Close hint
         g2d.setFont(new Font("SansSerif", Font.ITALIC, 12));
-        g2d.setColor(new Color(120, 150, 180));
+        g2d.setColor(new Color(148, 163, 184));
         fm = g2d.getFontMetrics();
-        String hint = "Press any key to go back";
+        String hint = "Press any key to return";
         g2d.drawString(hint, boxX + (boxW - fm.stringWidth(hint)) / 2, boxY + boxH - 16);
     }
 
     private void drawFooter(Graphics2D g2d, int w, int h) {
-        g2d.setFont(new Font("SansSerif", Font.PLAIN, 11));
-        g2d.setColor(new Color(70, 90, 110));
+        g2d.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        g2d.setColor(new Color(100, 116, 139));
         FontMetrics fm = g2d.getFontMetrics();
-        String hint = "↑ ↓ Navigate   ENTER Confirm";
-        g2d.drawString(hint, (w - fm.stringWidth(hint)) / 2, h - 18);
+        String hint = "↑ ↓ Navigate  •  ENTER Confirm  •  CLICK with Mouse";
+        g2d.drawString(hint, (w - fm.stringWidth(hint)) / 2, h - 22);
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Animation helpers
-    // ─────────────────────────────────────────────────────────────────────
-
-    /** Tiny twinkling star particle */
+    /** Twinkling star particle in background */
     private class Star {
         double x, y, size;
         float alpha;
         double speed, phase;
 
-        Star() { reset(800, 600); }
+        Star() { reset(820, 680); }
 
         void reset(int w, int h) {
             x = rng.nextDouble() * w;
             y = rng.nextDouble() * h;
             size = 0.5 + rng.nextDouble() * 1.8;
-            speed = 0.1 + rng.nextDouble() * 0.25;
+            speed = 0.08 + rng.nextDouble() * 0.22;
             phase = rng.nextDouble() * Math.PI * 2;
-            alpha = 0.2f + rng.nextFloat() * 0.6f;
+            alpha = 0.2f + rng.nextFloat() * 0.5f;
         }
 
         void update(int w, int h) {
@@ -331,48 +483,6 @@ public class MenuPanel extends JPanel {
             g2d.setColor(new Color(1.0f, 1.0f, 1.0f, alpha * brightness));
             int d = Math.max(1, (int) size);
             g2d.fillOval((int) x, (int) y, d, d);
-        }
-    }
-
-    /** Semi-transparent floating maze cell decoration in the background */
-    private class FloatingCell {
-        double x, y, size, vx, vy, rot, rotSpeed;
-        Color color;
-
-        FloatingCell() { reset(800, 600); }
-
-        void reset(int w, int h) {
-            x = rng.nextDouble() * w;
-            y = rng.nextDouble() * h;
-            size = 14 + rng.nextDouble() * 30;
-            vx = (rng.nextDouble() - 0.5) * 0.3;
-            vy = 0.15 + rng.nextDouble() * 0.25;
-            rot = rng.nextDouble() * Math.PI * 2;
-            rotSpeed = (rng.nextDouble() - 0.5) * 0.012;
-            int r = rng.nextInt(3);
-            if (r == 0) color = new Color(0, 80, 140, 25);
-            else if (r == 1) color = new Color(0, 50, 100, 18);
-            else color = new Color(20, 60, 120, 20);
-        }
-
-        void update(int w, int h) {
-            x += vx; y += vy; rot += rotSpeed;
-            if (y > h + 40) { y = -40; x = rng.nextDouble() * w; }
-            if (x < -40) { x = w + 40; }
-            if (x > w + 40) { x = -40; }
-        }
-
-        void draw(Graphics2D g2d) {
-            AffineTransform old = g2d.getTransform();
-            g2d.translate(x, y);
-            g2d.rotate(rot);
-            int s = (int) size;
-            g2d.setColor(color);
-            g2d.fillRect(-s / 2, -s / 2, s, s);
-            g2d.setColor(new Color(0, 120, 200, 18));
-            g2d.setStroke(new BasicStroke(1.0f));
-            g2d.drawRect(-s / 2, -s / 2, s, s);
-            g2d.setTransform(old);
         }
     }
 }

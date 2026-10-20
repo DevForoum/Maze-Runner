@@ -49,7 +49,7 @@ public class Main {
 
         frame.getContentPane().removeAll();
         frame.add(menuPanel);
-        frame.setSize(820, 640);
+        frame.pack();
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
         frame.toFront();
