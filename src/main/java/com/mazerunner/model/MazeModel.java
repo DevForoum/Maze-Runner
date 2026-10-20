@@ -549,6 +549,7 @@ public class MazeModel {
         if (grid[playerRow][playerCol].hasGem()) {
             grid[playerRow][playerCol].setGem(false);
             currentStats.recordGemCollected();
+            SoundManager.getInstance().play(SoundManager.GEM_PICKUP);
         }
 
         // Teleport if portal
@@ -557,9 +558,11 @@ public class MazeModel {
             if (target != null && isValidCoord(target.y, target.x)) {
                 playerRow = target.y;
                 playerCol = target.x;
+                SoundManager.getInstance().play(SoundManager.PORTAL_WHOOSH);
                 if (grid[playerRow][playerCol].hasGem()) {
                     grid[playerRow][playerCol].setGem(false);
                     currentStats.recordGemCollected();
+                    SoundManager.getInstance().play(SoundManager.GEM_PICKUP);
                 }
             }
         }
@@ -588,9 +591,14 @@ public class MazeModel {
         boolean reached = playerRow == rows - 1 && playerCol == cols - 1;
         if (reached) {
             int scoreTargetTimeRemaining = Math.max(0, levelConfig.getTimeLimitSeconds() - elapsedTimeSeconds);
+            boolean wasAlreadyFinished = currentStats.getTimeTakenSeconds() > 0;
             currentStats.finalizeStats(elapsedTimeSeconds, scoreTargetTimeRemaining,
                     (levelConfig != null) ? levelConfig.getTimeLimitSeconds() : 0,
                     (levelConfig != null) ? levelConfig.getGemsCount() : 3);
+            // Play fanfare exactly once (first time goal is detected)
+            if (!wasAlreadyFinished) {
+                SoundManager.getInstance().play(SoundManager.LEVEL_COMPLETE);
+            }
         }
         return reached;
     }

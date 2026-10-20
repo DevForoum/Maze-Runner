@@ -460,9 +460,17 @@ public class MazePanel extends JPanel {
         String instruct = (config != null) ? config.getInstructions() : "";
         g2d.drawString(instruct, 20, footerY + 26);
 
-        String controls = "[R] Reset | [HOLD S] Radar Path";
+        // Mute badge
+        boolean muted = com.mazerunner.model.SoundManager.getInstance().isMuted();
+        String muteLabel = muted ? "🔇 MUTED [M]" : "🔊 [M] Mute";
+        Color muteBg = muted ? new Color(120, 30, 30) : new Color(30, 50, 80);
+        drawBadge(g2d, muteLabel, muteBg, getWidth() - 130, footerY + 12);
+
+        String controls = "[R] Reset | [HOLD S] Radar";
         FontMetrics fm = g2d.getFontMetrics();
-        g2d.drawString(controls, getWidth() - fm.stringWidth(controls) - 20, footerY + 26);
+        g2d.setColor(new Color(160, 174, 192));
+        g2d.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        g2d.drawString(controls, getWidth() - fm.stringWidth(controls) - 145, footerY + 26);
     }
 
     private void drawGravityWidget(Graphics2D g2d, int x, int y) {

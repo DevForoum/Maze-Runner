@@ -5,6 +5,7 @@ import com.mazerunner.model.LevelConfig;
 import com.mazerunner.model.LevelManager;
 import com.mazerunner.model.MazeModel;
 import com.mazerunner.model.SlideResult;
+import com.mazerunner.model.SoundManager;
 import com.mazerunner.view.MazePanel;
 
 import javax.swing.Timer;
@@ -74,12 +75,14 @@ public class GameController extends KeyAdapter {
                 if (config != null && config.isRotationEnabled() && !panel.isRotating()) {
                     model.rotateCounterClockwise();
                     panel.rotateDegrees(-90);
+                    SoundManager.getInstance().play(SoundManager.PORTAL_WHOOSH);
                 }
             }
             case KeyEvent.VK_E -> {
                 if (config != null && config.isRotationEnabled() && !panel.isRotating()) {
                     model.rotateClockwise();
                     panel.rotateDegrees(90);
+                    SoundManager.getInstance().play(SoundManager.PORTAL_WHOOSH);
                 }
             }
 
@@ -96,6 +99,12 @@ public class GameController extends KeyAdapter {
                     model.solveBFS();
                     panel.repaint();
                 }
+            }
+
+            // Mute / unmute all sounds
+            case KeyEvent.VK_M -> {
+                SoundManager.getInstance().toggleMute();
+                panel.repaint();
             }
 
             // Level reset
@@ -118,6 +127,7 @@ public class GameController extends KeyAdapter {
         Direction gridDir = model.mapScreenToGrid(screenDir);
         boolean moved = model.movePlayer(gridDir);
         if (moved) {
+            SoundManager.getInstance().play(SoundManager.MOVE);
             panel.repaint();
         }
     }
@@ -163,6 +173,7 @@ public class GameController extends KeyAdapter {
 
                 // Wall destruction and impact effects
                 if (result.isWallBroken()) {
+                    SoundManager.getInstance().play(SoundManager.WALL_SMASH);
                     panel.triggerScreenShake(18.0);
                     Point impact = result.getImpactCell();
                     if (impact != null) {
@@ -170,6 +181,7 @@ public class GameController extends KeyAdapter {
                     }
                 } else if (result.hadHighMomentum()) {
                     // Solid wall slam with high momentum
+                    SoundManager.getInstance().play(SoundManager.WALL_SMASH);
                     panel.triggerScreenShake(11.0);
                 }
 
