@@ -443,6 +443,7 @@ public class MazePanel extends JPanel {
     }
 
     private void drawHUD(Graphics2D g2d) {
+        // ── Top bar background ──────────────────────────────────────────────────
         g2d.setColor(new Color(20, 24, 34));
         g2d.fillRect(0, 0, getWidth(), TOP_HUD_HEIGHT);
         g2d.setColor(new Color(45, 55, 72));
@@ -450,111 +451,121 @@ public class MazePanel extends JPanel {
 
         LevelConfig config = model.getLevelConfig();
 
-        // Level Title & Grid Dimensions
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 17));
+        // ── LEFT: Stage title (row 1) + Grid size (row 2) ──────────────────────
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 15));
         g2d.setColor(Color.WHITE);
         String title = (config != null) ? "STAGE " + config.getLevelNumber() + ": " + config.getTitle() : "MAZE RUNNER";
-        g2d.drawString(title, 20, 30);
+        g2d.drawString(title, 14, 26);
 
-        g2d.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        g2d.setFont(new Font("SansSerif", Font.PLAIN, 11));
         g2d.setColor(new Color(160, 174, 192));
-        g2d.drawString("Grid: " + model.getCols() + "x" + model.getRows(), 20, 48);
+        g2d.drawString("Grid: " + model.getCols() + "x" + model.getRows(), 14, 44);
 
-        // Timer Display
+        // ── CENTRE: Timer ───────────────────────────────────────────────────────
         int timeLimit = (config != null) ? config.getTimeLimitSeconds() : 0;
-        int elapsed = model.getElapsedTimeSeconds();
+        int elapsed   = model.getElapsedTimeSeconds();
         int remaining = Math.max(0, timeLimit - elapsed);
 
-        g2d.setFont(new Font("Monospaced", Font.BOLD, 19));
         String timeStr = (timeLimit > 0)
-                ? String.format("TIME: %02d:%02d", remaining / 60, remaining % 60)
-                : "TIME: " + model.getTimeDisplay();
+                ? String.format("TIME  %02d:%02d", remaining / 60, remaining % 60)
+                : "TIME  " + model.getTimeDisplay();
 
         Color timerColor = Color.WHITE;
         if (timeLimit > 0) {
-            if (remaining <= 10) timerColor = new Color(248, 113, 113); // Urgent red
-            else if (remaining <= 25) timerColor = new Color(251, 191, 36); // Warning yellow
-            else timerColor = new Color(52, 211, 153); // Comfortable green
+            if (remaining <= 10)      timerColor = new Color(248, 113, 113);
+            else if (remaining <= 25) timerColor = new Color(251, 191, 36);
+            else                      timerColor = new Color(52, 211, 153);
         }
+        g2d.setFont(new Font("Monospaced", Font.BOLD, 17));
+        FontMetrics timeFm = g2d.getFontMetrics();
+        int timeX = (getWidth() - timeFm.stringWidth(timeStr)) / 2;
         g2d.setColor(timerColor);
-        g2d.drawString(timeStr, 220, 30);
+        g2d.drawString(timeStr, timeX, 35);
 
-        // Feature Badges
-        int badgeX = 380;
-        int badgeY = 15;
+        // ── RIGHT: Status badges (stacked into one row, anchored right) ─────────
+        // Only show the most important badges; skip gravity widget to save space.
+        // Build them right-to-left so they never overflow left into the timer.
+        int panelW = getWidth();
+        int badgeY = 26;  // vertical centre of badges in top bar
+
+        // Collect badge specs in priority order (highest priority rightmost)
+        java.util.List<Object[]> badges = new java.util.ArrayList<>();
 
         if (config != null) {
-            if (config.isCrackedWallsEnabled()) {
-                int crackedRem = model.getRemainingCrackedWallsCount();
-                Color cColor = crackedRem > 0 ? new Color(245, 158, 11) : new Color(75, 85, 99);
-                badgeX = drawBadge(g2d, "CRACKED WALLS: " + crackedRem, cColor, badgeX, badgeY);
-            }
-
-            if (config.isPortalsEnabled()) {
-                badgeX = drawBadge(g2d, "PORTALS ACTIVE", new Color(124, 58, 237), badgeX, badgeY);
-            }
-
-            int gemsCollected = model.getCurrentStats().getGemsCollected();
-            int gemsTotal = config.getGemsCount();
-            String gemStars = "\u2605".repeat(gemsCollected) + "\u2606".repeat(gemsTotal - gemsCollected);
-            Color gemColor = gemsCollected == gemsTotal ? new Color(16, 185, 129) : new Color(180, 140, 0);
-            badgeX = drawBadge(g2d, "GEMS " + gemStars, gemColor, badgeX, badgeY);
-
-            if (model.isShowingPath()) {
-                badgeX = drawBadge(g2d, "RADAR PATH ACTIVE", new Color(16, 185, 129), badgeX, badgeY);
-            }
-
+            // Chaser status – most urgent, keep rightmost
             if (model.hasChaser()) {
                 com.mazerunner.model.ChaserEntity chaser = model.getChaser();
                 if (chaser.isStunned()) {
-                    badgeX = drawBadge(g2d, "💫 STUNNED (" + chaser.getStunTicksRemaining() + ")", new Color(180, 83, 9), badgeX, badgeY);
+                    badges.add(new Object[]{"STUNNED (" + chaser.getStunTicksRemaining() + ")", new Color(180, 83, 9)});
                 } else {
-                    badgeX = drawBadge(g2d, "⚠ CHASER HUNTING", new Color(185, 28, 28), badgeX, badgeY);
+                    badges.add(new Object[]{"CHASER!", new Color(185, 28, 28)});
                 }
+            }
+            // Radar active
+            if (model.isShowingPath()) {
+                badges.add(new Object[]{"RADAR ON", new Color(16, 185, 129)});
+            }
+            // Gems (only show if level has gems)
+            if (config.getGemsCount() > 0) {
+                int gemsCollected = model.getCurrentStats().getGemsCollected();
+                int gemsTotal     = config.getGemsCount();
+                String gemStr = "GEMS " + gemsCollected + "/" + gemsTotal;
+                Color gemColor = gemsCollected == gemsTotal ? new Color(16, 185, 129) : new Color(180, 140, 0);
+                badges.add(new Object[]{gemStr, gemColor});
+            }
+            // Cracked walls remaining (only if level has them)
+            if (config.isCrackedWallsEnabled()) {
+                int rem = model.getRemainingCrackedWallsCount();
+                Color cc = rem > 0 ? new Color(245, 158, 11) : new Color(75, 85, 99);
+                badges.add(new Object[]{"CRACKED: " + rem, cc});
+            }
+            // Portals
+            if (config.isPortalsEnabled()) {
+                badges.add(new Object[]{"PORTALS", new Color(124, 58, 237)});
             }
         }
 
-        // Visual Gravity Direction Widget
-        if (config != null && config.isGravityEnabled()) {
-            drawGravityWidget(g2d, getWidth() - 250, 10);
-        } else if (currentMomentum > 0) {
-            String momText = currentMomentum >= 2 ? "MOMENTUM: " + currentMomentum + "x (SMASH!)" : "MOMENTUM: 1x";
-            Color momColor = currentMomentum >= 2 ? new Color(239, 68, 68) : new Color(59, 130, 246);
-            drawBadge(g2d, momText, momColor, getWidth() - 220, 22);
+        // Draw badges right-to-left so they flow from the right edge inward
+        int bx = panelW - 10;
+        g2d.setFont(new Font("SansSerif", Font.BOLD, 10));
+        FontMetrics bfm = g2d.getFontMetrics();
+        for (Object[] badge : badges) {
+            String label = (String) badge[0];
+            Color  bg    = (Color)  badge[1];
+            int bw = bfm.stringWidth(label) + 14;
+            bx -= bw;
+            if (bx < timeX + timeFm.stringWidth(timeStr) + 10) break; // stop if it would overlap timer
+            int bh = 20;
+            int by = (TOP_HUD_HEIGHT - bh) / 2;
+            g2d.setColor(bg);
+            g2d.fillRoundRect(bx, by, bw, bh, 8, 8);
+            g2d.setColor(Color.WHITE);
+            g2d.drawString(label, bx + 7, by + bh - 5);
+            bx -= 6; // gap between badges
         }
 
-        // Bottom HUD Footer
+        // ── BOTTOM footer bar ───────────────────────────────────────────────────
         int footerY = getHeight() - BOTTOM_HUD_HEIGHT;
         g2d.setColor(new Color(26, 32, 44));
         g2d.fillRect(0, footerY, getWidth(), BOTTOM_HUD_HEIGHT);
         g2d.setColor(new Color(45, 55, 72));
         g2d.drawLine(0, footerY, getWidth(), footerY);
 
+        // Left: level instructions (truncated to fit)
+        g2d.setFont(new Font("SansSerif", Font.PLAIN, 11));
         g2d.setColor(new Color(160, 174, 192));
-        g2d.setFont(new Font("SansSerif", Font.PLAIN, 12));
         String instruct = (config != null) ? config.getInstructions() : "";
-        // Truncate or ellipsis if instruction string is too wide for the panel
         FontMetrics fmInstr = g2d.getFontMetrics();
-        int maxInstrWidth = getWidth() - 40;
-        if (fmInstr.stringWidth(instruct) > maxInstrWidth) {
-            while (instruct.length() > 0 && fmInstr.stringWidth(instruct + "…") > maxInstrWidth) {
-                instruct = instruct.substring(0, instruct.length() - 1);
-            }
-            instruct = instruct + "…";
+        int maxInstrWidth = getWidth() / 2 - 10; // only use left half so it never hits controls
+        while (instruct.length() > 0 && fmInstr.stringWidth(instruct) > maxInstrWidth) {
+            instruct = instruct.substring(0, instruct.length() - 1);
         }
-        g2d.drawString(instruct, 20, footerY + 26);
+        g2d.drawString(instruct, 14, footerY + 28);
 
-        // Mute badge
-        boolean muted = com.mazerunner.model.SoundManager.getInstance().isMuted();
-        String muteLabel = muted ? "🔇 MUTED [M]" : "🔊 [M] Mute";
-        Color muteBg = muted ? new Color(120, 30, 30) : new Color(30, 50, 80);
-        drawBadge(g2d, muteLabel, muteBg, getWidth() - 130, footerY + 12);
-
-        String controls = "[R] Reset | [HOLD S] Radar";
-        FontMetrics fm = g2d.getFontMetrics();
-        g2d.setColor(new Color(160, 174, 192));
-        g2d.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        g2d.drawString(controls, getWidth() - fm.stringWidth(controls) - 145, footerY + 26);
+        // Right: key controls hint
+        String controls = "[ARROWS] Move  [R] Reset  [S] Radar  [M] Mute";
+        FontMetrics fmCtrl = g2d.getFontMetrics();
+        g2d.drawString(controls, getWidth() - fmCtrl.stringWidth(controls) - 14, footerY + 28);
     }
 
     private void drawGravityWidget(Graphics2D g2d, int x, int y) {
