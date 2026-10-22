@@ -69,7 +69,8 @@ public class Main {
 
         frame.getContentPane().removeAll();
         frame.add(panel);
-        frame.pack();
+        // Make the game window fill the screen for better visibility on larger mazes
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setLocationRelativeTo(null);
         panel.requestFocusInWindow();
         frame.revalidate();

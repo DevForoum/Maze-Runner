@@ -533,6 +533,15 @@ public class MazePanel extends JPanel {
         g2d.setColor(new Color(160, 174, 192));
         g2d.setFont(new Font("SansSerif", Font.PLAIN, 12));
         String instruct = (config != null) ? config.getInstructions() : "";
+        // Truncate or ellipsis if instruction string is too wide for the panel
+        FontMetrics fmInstr = g2d.getFontMetrics();
+        int maxInstrWidth = getWidth() - 40;
+        if (fmInstr.stringWidth(instruct) > maxInstrWidth) {
+            while (instruct.length() > 0 && fmInstr.stringWidth(instruct + "…") > maxInstrWidth) {
+                instruct = instruct.substring(0, instruct.length() - 1);
+            }
+            instruct = instruct + "…";
+        }
         g2d.drawString(instruct, 20, footerY + 26);
 
         // Mute badge
