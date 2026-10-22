@@ -55,7 +55,8 @@ public class MazePanel extends JPanel {
     public MazePanel(MazeModel model) {
         this.model = model;
 
-        setPreferredSize(new Dimension(VIEW_SIZE, VIEW_SIZE + TOP_HUD_HEIGHT + BOTTOM_HUD_HEIGHT));
+        // No fixed preferred size — the window is maximized so the panel fills
+        // whatever space the OS gives it, and cell size is computed dynamically.
         setBackground(new Color(15, 18, 24)); // Modern dark charcoal slate
         setFocusable(true);
 

@@ -104,4 +104,9 @@ public class LevelManager {
     public void resetToFirstLevel() {
         currentLevelIndex = 0;
     }
+
+    /** Jump directly to a specific level by 0-based index (used by the level selector). */
+    public void setLevelIndex(int index) {
+        this.currentLevelIndex = Math.max(0, index);
+    }
 }

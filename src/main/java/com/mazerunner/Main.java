@@ -4,6 +4,7 @@ import com.mazerunner.controller.GameController;
 import com.mazerunner.model.LevelManager;
 import com.mazerunner.model.MazeModel;
 import com.mazerunner.model.SoundManager;
+import com.mazerunner.view.LevelSelectPanel;
 import com.mazerunner.view.MazePanel;
 import com.mazerunner.view.MenuPanel;
 
@@ -11,8 +12,12 @@ import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 
 /**
- * Main application entry point — shows the animated main menu,
- * then transitions to the game on Play. EDT Thread-Safe.
+ * Main application entry point.
+ *
+ * Flow:
+ *   Main Menu  →  Level Selector  →  Game
+ *
+ * Each screen is swapped into the same JFrame so the window never closes/reopens.
  */
 public class Main {
 
@@ -27,24 +32,17 @@ public class Main {
         SwingUtilities.invokeLater(Main::showMenu);
     }
 
-    /** Show the animated main menu screen */
+    // ── Screen 1: Main Menu ────────────────────────────────────────────────
     private static void showMenu() {
         if (frame == null) {
             frame = new JFrame("Maze Runner: Kinetic Gravity Engine");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            frame.setResizable(false);
+            frame.setResizable(true);
         }
 
         MenuPanel menuPanel = new MenuPanel(new MenuPanel.MenuCallback() {
-            @Override
-            public void onPlay() {
-                SwingUtilities.invokeLater(Main::startGame);
-            }
-
-            @Override
-            public void onQuit() {
-                System.exit(0);
-            }
+            @Override public void onPlay() { SwingUtilities.invokeLater(Main::showLevelSelect); }
+            @Override public void onQuit() { System.exit(0); }
         });
 
         frame.getContentPane().removeAll();
@@ -58,9 +56,34 @@ public class Main {
         menuPanel.requestFocusInWindow();
     }
 
-    /** Transition from menu to the actual game */
-    private static void startGame() {
+    // ── Screen 2: Level Selector ───────────────────────────────────────────
+    private static void showLevelSelect() {
+        LevelSelectPanel selectPanel = new LevelSelectPanel(new LevelSelectPanel.SelectCallback() {
+            @Override
+            public void onLevelSelected(int startIndex) {
+                // startIndex is 0-based (Level 1 = index 0)
+                SwingUtilities.invokeLater(() -> startGame(startIndex));
+            }
+            @Override
+            public void onBack() {
+                SwingUtilities.invokeLater(Main::showMenu);
+            }
+        });
+
+        frame.getContentPane().removeAll();
+        frame.add(selectPanel);
+        frame.pack();
+        frame.setLocationRelativeTo(null);
+        selectPanel.requestFocusInWindow();
+        frame.revalidate();
+        frame.repaint();
+    }
+
+    // ── Screen 3: Game ─────────────────────────────────────────────────────
+    private static void startGame(int levelIndex) {
         LevelManager levelManager = new LevelManager();
+        levelManager.setLevelIndex(levelIndex);   // jump to chosen level
+
         MazeModel model = new MazeModel(levelManager.getCurrentLevel());
         MazePanel panel = new MazePanel(model);
 
@@ -69,7 +92,7 @@ public class Main {
 
         frame.getContentPane().removeAll();
         frame.add(panel);
-        // Make the game window fill the screen for better visibility on larger mazes
+        // Maximise so the dynamic cell-size calculation fills the whole screen
         frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setLocationRelativeTo(null);
         panel.requestFocusInWindow();
@@ -77,3 +100,4 @@ public class Main {
         frame.repaint();
     }
 }
+
