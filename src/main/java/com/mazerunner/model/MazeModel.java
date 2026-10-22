@@ -385,6 +385,8 @@ public class MazeModel {
     }
 
     public void clearPath() {
+        // Hide the path overlay and reset the flag so subsequent S presses recompute the BFS.
+        showingPath = false;
         clearBFSPath();
     }
 
