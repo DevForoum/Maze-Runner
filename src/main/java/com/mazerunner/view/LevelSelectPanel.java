@@ -12,6 +12,8 @@ import java.awt.FontMetrics;
 import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -59,6 +61,8 @@ public class LevelSelectPanel extends JPanel {
     private int hoveredIndex = -1;
     /** Whether the Back button is hovered. */
     private boolean backHovered = false;
+    /** Level card selected by keyboard navigation. */
+    private int selectedIndex = 0;
 
     // ── Back button geometry (computed in paintComponent) ─────────────────
     private int backX, backY, backW, backH;
@@ -69,6 +73,34 @@ public class LevelSelectPanel extends JPanel {
         setBackground(new Color(15, 18, 24));
         setFocusable(true);
         setCursor(Cursor.getDefaultCursor());
+
+        addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                switch (e.getKeyCode()) {
+                    case KeyEvent.VK_UP -> {
+                        int optionCount = levels.size() + 1;
+                        selectedIndex = (selectedIndex - 1 + optionCount) % optionCount;
+                        hoveredIndex = -1;
+                        repaint();
+                    }
+                    case KeyEvent.VK_DOWN -> {
+                        int optionCount = levels.size() + 1;
+                        selectedIndex = (selectedIndex + 1) % optionCount;
+                        hoveredIndex = -1;
+                        repaint();
+                    }
+                    case KeyEvent.VK_ENTER, KeyEvent.VK_SPACE -> {
+                        if (selectedIndex == levels.size()) {
+                            callback.onBack();
+                        } else {
+                            callback.onLevelSelected(selectedIndex);
+                        }
+                    }
+                    case KeyEvent.VK_ESCAPE, KeyEvent.VK_BACK_SPACE -> callback.onBack();
+                }
+            }
+        });
 
         // Pull levels from a temporary LevelManager just to read their configs
         LevelManager lm = new LevelManager();
@@ -85,6 +117,11 @@ public class LevelSelectPanel extends JPanel {
                 boolean prevBack = backHovered;
                 hoveredIndex = getCardAt(e.getX(), e.getY());
                 backHovered  = isOverBack(e.getX(), e.getY());
+                if (hoveredIndex >= 0) {
+                    selectedIndex = hoveredIndex;
+                } else if (backHovered) {
+                    selectedIndex = levels.size();
+                }
                 if (hoveredIndex != prev || backHovered != prevBack) {
                     setCursor(hoveredIndex >= 0 || backHovered
                             ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
@@ -154,10 +191,13 @@ public class LevelSelectPanel extends JPanel {
         backX = (w - backW) / 2;
         backY = startY + levels.size() * (CARD_H + CARD_GAP) + 20;
 
-        Color backBg = backHovered ? new Color(55, 65, 90) : new Color(35, 42, 60);
+        boolean backSelected = selectedIndex == levels.size();
+        Color backBg = (backHovered || backSelected)
+                ? new Color(55, 65, 90)
+                : new Color(35, 42, 60);
         g2.setColor(backBg);
         g2.fillRoundRect(backX, backY, backW, backH, 10, 10);
-        g2.setColor(new Color(160, 174, 192));
+        g2.setColor(backSelected ? new Color(96, 165, 250) : new Color(160, 174, 192));
         g2.setStroke(new java.awt.BasicStroke(1.5f));
         g2.drawRoundRect(backX, backY, backW, backH, 10, 10);
 
@@ -170,7 +210,7 @@ public class LevelSelectPanel extends JPanel {
 
     /** Draws one level card at the given position. */
     private void drawCard(Graphics2D g2, LevelConfig cfg, int index, int x, int y) {
-        boolean hovered = (index == hoveredIndex);
+        boolean hovered = (index == hoveredIndex || index == selectedIndex);
 
         // Card background
         Color cardBg = hovered ? new Color(32, 40, 58) : new Color(22, 28, 42);

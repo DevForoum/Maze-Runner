@@ -87,7 +87,12 @@ public class Main {
         MazeModel model = new MazeModel(levelManager.getCurrentLevel());
         MazePanel panel = new MazePanel(model);
 
-        GameController controller = new GameController(model, panel, levelManager);
+        GameController controller = new GameController(
+                model,
+                panel,
+                levelManager,
+                () -> SwingUtilities.invokeLater(Main::showLevelSelect)
+        );
         panel.addKeyListener(controller);
 
         frame.getContentPane().removeAll();
@@ -98,6 +103,6 @@ public class Main {
         panel.requestFocusInWindow();
         frame.revalidate();
         frame.repaint();
+        SwingUtilities.invokeLater(panel::requestFocusInWindow);
     }
 }
-

@@ -401,10 +401,11 @@ public class MenuPanel extends JPanel {
         g2d.drawLine(boxX + 20, boxY + 56, boxX + boxW - 20, boxY + 56);
 
         String[][] controls = {
-                {"↑ ↓ ← → / WASD",  "Move player in corridor"},
+                {"↑ ↓ ← →",          "Move player in corridor"},
                 {"Q / E",           "Rotate maze 90° (smooth ease-out)"},
                 {"SPACE / G",       "Kinetic gravity drop (slides player & chaser)"},
                 {"Hold S",          "Active BFS radar path reveal"},
+                {"ESC",              "Return to level selector"},
                 {"R",               "Instant level retry"},
                 {"ENTER / SPACE",   "Advance to next stage upon victory"},
                 {"M",               "Toggle mute audio"},

@@ -8,7 +8,14 @@ import com.mazerunner.model.SlideResult;
 import com.mazerunner.model.SoundManager;
 import com.mazerunner.view.MazePanel;
 
+import javax.swing.JOptionPane;
+import javax.swing.JComponent;
+import javax.swing.JDialog;
+import javax.swing.KeyStroke;
 import javax.swing.Timer;
+import javax.swing.JButton;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.Point;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
@@ -23,6 +30,7 @@ public class GameController extends KeyAdapter {
     private final MazeModel model;
     private final MazePanel panel;
     private final LevelManager levelManager;
+    private final Runnable onReturnToLevelSelect;
 
     private boolean isSliding = false;
     private Timer slideAnimationTimer = null;
@@ -30,9 +38,23 @@ public class GameController extends KeyAdapter {
     private final Timer chaserTimer;
 
     public GameController(MazeModel model, MazePanel panel, LevelManager levelManager) {
+        this(model, panel, levelManager, () -> { });
+    }
+
+    public GameController(MazeModel model, MazePanel panel, LevelManager levelManager,
+                          Runnable onReturnToLevelSelect) {
         this.model = model;
         this.panel = panel;
         this.levelManager = levelManager;
+        this.onReturnToLevelSelect = onReturnToLevelSelect;
+
+        panel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "returnToLevelSelect");
+        panel.getActionMap().put("returnToLevelSelect", new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                confirmReturnToLevelSelect();
+            }
+        });
 
         // 1-second interval level clock timer
         this.levelClockTimer = new Timer(1000, e -> {
@@ -159,6 +181,79 @@ public class GameController extends KeyAdapter {
             }
             panel.repaint();
         }
+    }
+
+    private void confirmReturnToLevelSelect() {
+        JOptionPane optionPane = new JOptionPane(
+                "Return to the level selector?\nYour current progress in this level will be lost.\n\nUse ← / → to choose, Enter to confirm, or Esc to cancel.",
+                JOptionPane.QUESTION_MESSAGE,
+                JOptionPane.YES_NO_OPTION
+        );
+        JDialog dialog = optionPane.createDialog(panel, "Return to Level Select");
+        final boolean[] yesSelected = {true};
+        JButton yesButton = findButton(dialog, "Yes");
+        JButton noButton = findButton(dialog, "No");
+
+        var inputMap = dialog.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        var actionMap = dialog.getRootPane().getActionMap();
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), "selectYes");
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), "selectNo");
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "confirmChoice");
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "cancelChoice");
+        actionMap.put("selectNo", new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                yesSelected[0] = false;
+                if (noButton != null) noButton.requestFocusInWindow();
+            }
+        });
+        actionMap.put("selectYes", new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                yesSelected[0] = true;
+                if (yesButton != null) yesButton.requestFocusInWindow();
+            }
+        });
+        actionMap.put("confirmChoice", new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                optionPane.setValue(yesSelected[0] ? JOptionPane.YES_OPTION : JOptionPane.NO_OPTION);
+                dialog.dispose();
+            }
+        });
+        actionMap.put("cancelChoice", new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                optionPane.setValue(JOptionPane.NO_OPTION);
+                dialog.dispose();
+            }
+        });
+
+        dialog.setModal(true);
+        dialog.setVisible(true);
+
+        int choice = yesSelected[0] && Integer.valueOf(JOptionPane.YES_OPTION).equals(optionPane.getValue())
+                ? JOptionPane.YES_OPTION
+                : JOptionPane.NO_OPTION;
+
+        if (choice == JOptionPane.YES_OPTION) {
+            if (slideAnimationTimer != null && slideAnimationTimer.isRunning()) {
+                slideAnimationTimer.stop();
+            }
+            isSliding = false;
+            levelClockTimer.stop();
+            chaserTimer.stop();
+            onReturnToLevelSelect.run();
+        }
+    }
+
+    private JButton findButton(Container container, String text) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JButton button && text.equals(button.getText())) {
+                return button;
+            }
+            if (component instanceof Container child) {
+                JButton match = findButton(child, text);
+                if (match != null) return match;
+            }
+        }
+        return null;
     }
 
     /**

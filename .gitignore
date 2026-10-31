@@ -1,5 +1,7 @@
 # Maven build target directory
 target/
+dist/
+.work/
 *.class
 
 # IntelliJ IDEA
@@ -17,7 +19,6 @@ out/
 # NetBeans
 nbproject/private/
 nbbuild/
-dist/
 nbdist/
 .nb-gradle/
 

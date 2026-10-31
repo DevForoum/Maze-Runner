@@ -29,8 +29,15 @@ Open the project folder, set source root to `src/main/java`, and run `com.mazeru
 | `Q` / `E` | Rotate maze 90° counter-clockwise / clockwise |
 | `Space` / `G` | Trigger gravity slide |
 | `Hold S` | Show BFS radar path to the goal |
+| `Esc` | Return to the level selector |
 | `R` | Restart current level |
 | `M` | Mute / unmute sounds |
+
+### Keyboard Navigation
+
+- On the level-selection screen, use `↑` / `↓` to cycle through the levels and `← BACK`, then press `Enter` or `Space` to activate the selected option.
+- Press `Esc` or `Backspace` on the level-selection screen to return to the main menu.
+- In the return-to-level-selector confirmation dialog, use `←` / `→` to choose the left `Yes` or right `No` button, `Enter` to confirm, and `Esc` to cancel.
 
 ---
 
@@ -108,6 +115,23 @@ src/
 
 ```bash
 javac -cp target/classes -d target/classes src/test/java/com/mazerunner/EngineTest.java
-java  -cp target/classes com.mazerunner.EngineTest
+java  -ea -cp target/classes com.mazerunner.EngineTest
 # Expected: === ALL ENGINE TESTS PASSED SUCCESSFULLY! ===
 ```
+
+---
+
+## Building a Downloadable Windows Release
+
+Maintainers with a complete JDK 21 or newer installed can create a self-contained Windows package with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File package.ps1
+```
+
+The output is `dist/MazeRunner-Windows.zip`. Extract the ZIP and run `MazeRunner/MazeRunner.exe`.
+The packaged application includes its own Java runtime, so players do not need to install Java, the JDK, or Maven.
+
+The repository also includes `.github/workflows/windows-release.yml`. When a tag such as `v1.0.0` is pushed, GitHub Actions builds the Windows package and attaches it to a GitHub Release, providing a single shareable download link.
+
+This packaged release targets Windows. Linux and macOS packages are not currently included.
